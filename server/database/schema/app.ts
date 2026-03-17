@@ -20,7 +20,7 @@ import type { PipelineConfig } from '~~/shared/status-transitions'
 export const jobStatusEnum = pgEnum('job_status', ['draft', 'open', 'closed', 'archived'])
 export const jobTypeEnum = pgEnum('job_type', ['full_time', 'part_time', 'contract', 'internship'])
 // application_status was a pgEnum; converted to text in migration 0016 to allow custom stages
-export const documentTypeEnum = pgEnum('document_type', ['resume', 'cover_letter', 'other'])
+export const documentTypeEnum = pgEnum('document_type', ['resume', 'cover_letter', 'portfolio', 'reference', 'certificate', 'other'])
 export const questionTypeEnum = pgEnum('question_type', [
   'short_text', 'long_text', 'single_select', 'multi_select',
   'number', 'date', 'url', 'checkbox', 'file_upload',
@@ -116,6 +116,22 @@ export const document = pgTable('document', {
 }, (t) => ([
   index('document_organization_id_idx').on(t.organizationId),
   index('document_candidate_id_idx').on(t.candidateId),
+]))
+
+/**
+ * External profile links for a candidate (GitHub, LinkedIn, portfolio, etc.).
+ * `type` is a plain text field — valid values: github, linkedin, portfolio, website, other.
+ */
+export const candidateLink = pgTable('candidate_link', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  organizationId: text('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' }),
+  candidateId: text('candidate_id').notNull().references(() => candidate.id, { onDelete: 'cascade' }),
+  type: text('type').notNull().default('other'),
+  url: text('url').notNull(),
+  label: text('label'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ([
+  index('candidate_link_org_cand_idx').on(t.organizationId, t.candidateId),
 ]))
 
 // ─────────────────────────────────────────────
@@ -417,6 +433,12 @@ export const candidateRelations = relations(candidate, ({ one, many }) => ({
   organization: one(organization, { fields: [candidate.organizationId], references: [organization.id] }),
   applications: many(application),
   documents: many(document),
+  links: many(candidateLink),
+}))
+
+export const candidateLinkRelations = relations(candidateLink, ({ one }) => ({
+  organization: one(organization, { fields: [candidateLink.organizationId], references: [organization.id] }),
+  candidate: one(candidate, { fields: [candidateLink.candidateId], references: [candidate.id] }),
 }))
 
 export const applicationRelations = relations(application, ({ one, many }) => ({

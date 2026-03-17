@@ -31,7 +31,17 @@ export const MIME_TO_EXTENSION: Record<string, string> = {
 }
 
 /** Schema for the document type field (matches the DB enum) */
-export const documentTypeSchema = z.enum(['resume', 'cover_letter', 'other'])
+export const documentTypeSchema = z.enum(['resume', 'cover_letter', 'portfolio', 'reference', 'certificate', 'other'])
+
+/** Human-readable labels for document types */
+export const DOC_TYPE_LABELS: Record<string, string> = {
+  resume: 'Resume',
+  cover_letter: 'Cover Letter',
+  portfolio: 'Portfolio',
+  reference: 'Reference',
+  certificate: 'Certificate',
+  other: 'Other',
+}
 
 /**
  * Sanitize a user-provided filename for safe storage and display.

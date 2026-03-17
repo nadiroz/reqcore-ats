@@ -5,7 +5,7 @@ import {
   UserPlus, Pencil, Trash2, MoreHorizontal, Globe, ChevronDown, X,
   Video, Building2, Code2, UsersRound, Save, Check, MapPin, Users, Plus,
   CheckCircle2, XCircle, AlertTriangle, ArrowUpDown, ListFilter,
-  Maximize2, Minimize2,
+  Maximize2, Minimize2, Github, Linkedin,
 } from 'lucide-vue-next'
 import { z } from 'zod'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
@@ -293,6 +293,42 @@ const activityItems = computed(() => activityLogData.value?.data ?? [])
 
 // Task stub — fully wired in Wave G when useApplicationTasks + DB table are created
 const openTasksCount = computed(() => 0)
+
+// ─────────────────────────────────────────────
+// Candidate links
+// ─────────────────────────────────────────────
+
+const currentCandidateId = computed(() => resolvedCurrentApplication.value?.candidate.id)
+const {
+  links: candidateLinks,
+  isLoading: linksLoading,
+  addLink,
+  removeLink,
+} = useCandidateLinks(currentCandidateId)
+
+const showAddLink = ref(false)
+const newLinkType = ref('github')
+const newLinkUrl = ref('')
+const isAddingLink = ref(false)
+const addLinkError = ref<string | null>(null)
+
+async function submitAddLink() {
+  if (!newLinkUrl.value.trim()) return
+  isAddingLink.value = true
+  addLinkError.value = null
+  try {
+    await addLink({ type: newLinkType.value, url: newLinkUrl.value.trim() })
+    showAddLink.value = false
+    newLinkUrl.value = ''
+    newLinkType.value = 'github'
+  }
+  catch (err: any) {
+    addLinkError.value = err?.data?.statusMessage ?? 'Failed to add link'
+  }
+  finally {
+    isAddingLink.value = false
+  }
+}
 
 type FeedItem =
   | { kind: 'comment'; ts: string; data: typeof comments.value[0] }
@@ -2014,6 +2050,86 @@ function closeDocPreview() {
                   <p class="text-sm leading-relaxed text-surface-600 dark:text-surface-300 whitespace-pre-wrap">
                     {{ currentSummary.notes || 'No notes yet.' }}
                   </p>
+                </div>
+
+                <!-- Candidate links -->
+                <div class="rounded-xl border border-surface-200/80 bg-white p-5 shadow-sm shadow-surface-900/[0.03] dark:border-surface-800/60 dark:bg-surface-900 dark:shadow-none">
+                  <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-surface-800 dark:text-surface-200">Links</h3>
+                    <button
+                      class="inline-flex cursor-pointer items-center gap-1 text-xs text-brand-600 hover:text-brand-700 dark:text-brand-400 font-medium transition-colors"
+                      @click="showAddLink = !showAddLink"
+                    >
+                      <Plus class="size-3" />
+                      Add
+                    </button>
+                  </div>
+
+                  <div v-if="linksLoading && !candidateLinks.length" class="text-xs text-surface-400">Loading…</div>
+                  <div v-else-if="candidateLinks.length" class="flex flex-wrap gap-2 mb-2">
+                    <div
+                      v-for="link in candidateLinks"
+                      :key="link.id"
+                      class="inline-flex items-center gap-1.5 rounded-full border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 px-2.5 py-1 text-xs text-surface-700 dark:text-surface-300 group"
+                    >
+                      <component
+                        :is="link.type === 'github' ? Github : link.type === 'linkedin' ? Linkedin : Globe"
+                        class="size-3.5 shrink-0 text-surface-500 dark:text-surface-400"
+                      />
+                      <a
+                        :href="link.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="max-w-[140px] truncate hover:text-brand-600 dark:hover:text-brand-400 hover:underline transition-colors"
+                        :title="link.url"
+                      >{{ link.label || link.url.replace(/^https?:\/\//, '').split('/')[0] }}</a>
+                      <button
+                        class="cursor-pointer text-surface-300 hover:text-danger-500 dark:text-surface-600 dark:hover:text-danger-400 transition-colors opacity-0 group-hover:opacity-100"
+                        @click="removeLink(link.id)"
+                      >
+                        <X class="size-3" />
+                      </button>
+                    </div>
+                  </div>
+                  <p v-else-if="!showAddLink" class="text-xs text-surface-400 italic">No links yet.</p>
+
+                  <div v-if="showAddLink" class="mt-2 space-y-2">
+                    <div class="flex gap-2">
+                      <select
+                        v-model="newLinkType"
+                        class="rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 px-2 py-1.5 text-xs text-surface-700 dark:text-surface-300 focus:outline-none focus:ring-2 focus:ring-brand-500 shrink-0"
+                      >
+                        <option value="github">GitHub</option>
+                        <option value="linkedin">LinkedIn</option>
+                        <option value="portfolio">Portfolio</option>
+                        <option value="website">Website</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <input
+                        v-model="newLinkUrl"
+                        type="url"
+                        placeholder="https://…"
+                        class="flex-1 min-w-0 rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 px-2.5 py-1.5 text-xs text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        @keydown.enter.prevent="submitAddLink"
+                      />
+                    </div>
+                    <p v-if="addLinkError" class="text-xs text-danger-600 dark:text-danger-400">{{ addLinkError }}</p>
+                    <div class="flex gap-2">
+                      <button
+                        :disabled="isAddingLink || !newLinkUrl.trim()"
+                        class="cursor-pointer rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        @click="submitAddLink"
+                      >
+                        {{ isAddingLink ? 'Adding…' : 'Add' }}
+                      </button>
+                      <button
+                        class="cursor-pointer rounded-lg border border-surface-300 dark:border-surface-600 px-2.5 py-1.5 text-xs font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+                        @click="showAddLink = false; addLinkError = null"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- Quick links -->

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Pencil, Trash2, Mail, Phone, Calendar, Clock, Briefcase, FileText, Plus, Upload, Download, Eye, X, AlertTriangle } from 'lucide-vue-next'
+import { ArrowLeft, Pencil, Trash2, Mail, Phone, Calendar, Clock, Briefcase, FileText, Plus, Upload, Download, Eye, X, AlertTriangle, Github, Linkedin, Globe } from 'lucide-vue-next'
 import { z } from 'zod'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
 
@@ -135,7 +135,44 @@ const applicationStatusClasses: Record<string, string> = {
 const documentTypeLabels: Record<string, string> = {
   resume: 'Resume',
   cover_letter: 'Cover Letter',
+  portfolio: 'Portfolio',
+  reference: 'Reference',
+  certificate: 'Certificate',
   other: 'Other',
+}
+
+// ─────────────────────────────────────────────
+// Candidate links
+// ─────────────────────────────────────────────
+
+const { links: candidateLinks, isLoading: linksLoading, addLink, removeLink } = useCandidateLinks(
+  computed(() => candidate.value?.id),
+)
+
+const showAddLink = ref(false)
+const newLinkType = ref('github')
+const newLinkUrl = ref('')
+const newLinkLabel = ref('')
+const isAddingLink = ref(false)
+const addLinkError = ref<string | null>(null)
+
+async function submitAddLink() {
+  if (!newLinkUrl.value.trim()) return
+  isAddingLink.value = true
+  addLinkError.value = null
+  try {
+    await addLink({ type: newLinkType.value, url: newLinkUrl.value.trim(), label: newLinkLabel.value.trim() || undefined })
+    showAddLink.value = false
+    newLinkUrl.value = ''
+    newLinkLabel.value = ''
+    newLinkType.value = 'github'
+  }
+  catch (err: any) {
+    addLinkError.value = err?.data?.statusMessage ?? 'Failed to add link'
+  }
+  finally {
+    isAddingLink.value = false
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -168,7 +205,7 @@ function openScheduleInterview(app: { id: string; job: { title: string } }) {
 const { uploadDocument, downloadDocument, getPreviewUrl, deleteDocument } = useDocuments()
 
 const fileInput = ref<HTMLInputElement | null>(null)
-const selectedDocType = ref<'resume' | 'cover_letter' | 'other'>('resume')
+const selectedDocType = ref<'resume' | 'cover_letter' | 'portfolio' | 'reference' | 'certificate' | 'other'>('resume')
 const isUploading = ref(false)
 const uploadError = ref<string | null>(null)
 const showDocDeleteConfirm = ref<string | null>(null)
@@ -378,6 +415,91 @@ function formatFileSize(bytes: number | null | undefined): string {
           </dl>
         </div>
 
+        <!-- Links -->
+        <div class="rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5 mb-4">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-surface-700 dark:text-surface-200">Links</h2>
+            <button
+              class="inline-flex cursor-pointer items-center gap-1 text-xs text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 font-medium transition-colors"
+              @click="showAddLink = !showAddLink"
+            >
+              <Plus class="size-3" />
+              Add link
+            </button>
+          </div>
+
+          <!-- Existing links -->
+          <div v-if="linksLoading && !candidateLinks.length" class="text-xs text-surface-400">Loading…</div>
+          <div v-else-if="candidateLinks.length" class="flex flex-wrap gap-2 mb-3">
+            <div
+              v-for="link in candidateLinks"
+              :key="link.id"
+              class="inline-flex items-center gap-1.5 rounded-full border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 px-3 py-1 text-xs text-surface-700 dark:text-surface-300 group"
+            >
+              <component
+                :is="link.type === 'github' ? Github : link.type === 'linkedin' ? Linkedin : Globe"
+                class="size-3.5 shrink-0 text-surface-500 dark:text-surface-400"
+              />
+              <a
+                :href="link.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="max-w-[160px] truncate hover:text-brand-600 dark:hover:text-brand-400 hover:underline transition-colors"
+                :title="link.url"
+              >
+                {{ link.label || link.url.replace(/^https?:\/\//, '').split('/')[0] }}
+              </a>
+              <button
+                class="ml-0.5 cursor-pointer text-surface-300 hover:text-danger-500 dark:text-surface-600 dark:hover:text-danger-400 transition-colors opacity-0 group-hover:opacity-100"
+                title="Remove link"
+                @click="removeLink(link.id)"
+              >
+                <X class="size-3" />
+              </button>
+            </div>
+          </div>
+          <p v-else-if="!showAddLink" class="text-xs text-surface-400 italic">No links yet.</p>
+
+          <!-- Add link form -->
+          <div v-if="showAddLink" class="mt-2 space-y-2">
+            <div class="flex gap-2">
+              <select
+                v-model="newLinkType"
+                class="rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 px-2 py-1.5 text-xs text-surface-700 dark:text-surface-300 focus:outline-none focus:ring-2 focus:ring-brand-500 shrink-0"
+              >
+                <option value="github">GitHub</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="portfolio">Portfolio</option>
+                <option value="website">Website</option>
+                <option value="other">Other</option>
+              </select>
+              <input
+                v-model="newLinkUrl"
+                type="url"
+                placeholder="https://…"
+                class="flex-1 min-w-0 rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 px-2.5 py-1.5 text-xs text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                @keydown.enter.prevent="submitAddLink"
+              />
+            </div>
+            <p v-if="addLinkError" class="text-xs text-danger-600 dark:text-danger-400">{{ addLinkError }}</p>
+            <div class="flex gap-2">
+              <button
+                :disabled="isAddingLink || !newLinkUrl.trim()"
+                class="cursor-pointer rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                @click="submitAddLink"
+              >
+                {{ isAddingLink ? 'Adding…' : 'Add' }}
+              </button>
+              <button
+                class="cursor-pointer rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-xs font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+                @click="showAddLink = false; addLinkError = null"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Tabs -->
         <div class="border-b border-surface-200 dark:border-surface-800 mb-4">
           <div class="flex gap-1">
@@ -556,6 +678,9 @@ function formatFileSize(bytes: number | null | undefined): string {
                 >
                   <option value="resume">Resume</option>
                   <option value="cover_letter">Cover Letter</option>
+                  <option value="portfolio">Portfolio</option>
+                  <option value="reference">Reference</option>
+                  <option value="certificate">Certificate</option>
                   <option value="other">Other</option>
                 </select>
               </div>
