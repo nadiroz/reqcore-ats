@@ -272,6 +272,92 @@ function handleDetailScroll() {
 }
 
 // ─────────────────────────────────────────────
+// Current application detail + dependencies
+// ─────────────────────────────────────────────
+
+type SwipeDocument = {
+  id: string
+  type: 'resume' | 'cover_letter' | 'other'
+  originalFilename: string
+  mimeType: string
+  createdAt: string | Date
+}
+
+type SwipeResponse = {
+  id: string
+  value: unknown
+  question: {
+    id: string
+    label: string
+    type: string
+    options: string[] | null
+  } | null
+}
+
+type SwipeApplicationDetail = {
+  id: string
+  status: string
+  score: number | null
+  notes: string | null
+  createdAt: string | Date
+  updatedAt: string | Date
+  candidate: {
+    id: string
+    firstName: string
+    lastName: string
+    email: string
+    phone: string | null
+    documents: SwipeDocument[]
+  }
+  responses: SwipeResponse[]
+}
+
+const currentApplicationId = ref('')
+
+const { tasks, openTasksCount, createTask, toggleTask, deleteTask } =
+  useApplicationTasks(currentApplicationId)
+
+watch(currentSummary, (summary) => {
+  if (!summary?.id) return
+  currentApplicationId.value = summary.id
+}, { immediate: true })
+
+const {
+  data: currentApplication,
+  status: detailFetchStatus,
+  execute: executeDetailFetch,
+} = useFetch<SwipeApplicationDetail | null>(
+  () => `/api/applications/${currentApplicationId.value}`,
+  {
+    key: computed(() => `pipeline-application-${currentApplicationId.value}`),
+    immediate: false,
+    headers: useRequestHeaders(['cookie']),
+  },
+)
+
+// Cache the last successfully loaded detail so switching candidates doesn't flash a loading spinner
+const cachedApplication = ref<SwipeApplicationDetail | null>(null)
+
+const resolvedCurrentApplication = computed(() => {
+  if (currentApplication.value && currentApplication.value.id === currentApplicationId.value) {
+    return currentApplication.value
+  }
+  // Show cached (previous) data while the new detail is loading
+  return cachedApplication.value
+})
+
+watch(currentApplication, (val) => {
+  if (val && val.id === currentApplicationId.value) {
+    cachedApplication.value = val
+  }
+})
+
+watch(currentApplicationId, async (id) => {
+  if (!id) return
+  await executeDetailFetch()
+}, { immediate: true })
+
+// ─────────────────────────────────────────────
 // Activity feed
 // ─────────────────────────────────────────────
 
@@ -397,88 +483,6 @@ function formatActivityAction(action: string, metadata: Record<string, string> |
   }
   return labels[action] ?? action.replace(/_/g, ' ')
 }
-
-type SwipeDocument = {
-  id: string
-  type: 'resume' | 'cover_letter' | 'other'
-  originalFilename: string
-  mimeType: string
-  createdAt: string | Date
-}
-
-type SwipeResponse = {
-  id: string
-  value: unknown
-  question: {
-    id: string
-    label: string
-    type: string
-    options: string[] | null
-  } | null
-}
-
-type SwipeApplicationDetail = {
-  id: string
-  status: string
-  score: number | null
-  notes: string | null
-  createdAt: string | Date
-  updatedAt: string | Date
-  candidate: {
-    id: string
-    firstName: string
-    lastName: string
-    email: string
-    phone: string | null
-    documents: SwipeDocument[]
-  }
-  responses: SwipeResponse[]
-}
-
-const currentApplicationId = ref('')
-
-const { tasks, openTasksCount, createTask, toggleTask, deleteTask } =
-  useApplicationTasks(currentApplicationId)
-
-watch(currentSummary, (summary) => {
-  if (!summary?.id) return
-  currentApplicationId.value = summary.id
-}, { immediate: true })
-
-const {
-  data: currentApplication,
-  status: detailFetchStatus,
-  execute: executeDetailFetch,
-} = useFetch<SwipeApplicationDetail | null>(
-  () => `/api/applications/${currentApplicationId.value}`,
-  {
-    key: computed(() => `pipeline-application-${currentApplicationId.value}`),
-    immediate: false,
-    headers: useRequestHeaders(['cookie']),
-  },
-)
-
-// Cache the last successfully loaded detail so switching candidates doesn't flash a loading spinner
-const cachedApplication = ref<SwipeApplicationDetail | null>(null)
-
-const resolvedCurrentApplication = computed(() => {
-  if (currentApplication.value && currentApplication.value.id === currentApplicationId.value) {
-    return currentApplication.value
-  }
-  // Show cached (previous) data while the new detail is loading
-  return cachedApplication.value
-})
-
-watch(currentApplication, (val) => {
-  if (val && val.id === currentApplicationId.value) {
-    cachedApplication.value = val
-  }
-})
-
-watch(currentApplicationId, async (id) => {
-  if (!id) return
-  await executeDetailFetch()
-}, { immediate: true })
 
 useSeoMeta({
   title: computed(() =>
