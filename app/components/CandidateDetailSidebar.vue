@@ -2,7 +2,7 @@
 import {
   X, User, Calendar, Clock, Hash, MessageSquare, FileText,
   ExternalLink, Mail, Phone, Upload, Download, Eye, Trash2,
-  ArrowLeft, AlertTriangle,
+  ArrowLeft, AlertTriangle, Send, Pencil,
 } from 'lucide-vue-next'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
 
@@ -32,7 +32,7 @@ const hasSubNav = computed(() => {
 // Tabs
 // ─────────────────────────────────────────────
 
-const activeTab = ref<'overview' | 'documents' | 'responses'>('overview')
+const activeTab = ref<'overview' | 'documents' | 'comments'>('overview')
 
 // ─────────────────────────────────────────────
 // Fetch application detail
@@ -287,19 +287,13 @@ watch(() => props.applicationId, () => {
   uploadError.value = null
   showDocDeleteConfirm.value = null
   closePreview()
+  editingCommentId.value = null
+  newCommentBody.value = ''
 })
 
 // ─────────────────────────────────────────────
 // Display helpers
 // ─────────────────────────────────────────────
-
-function formatResponseValue(value: unknown): string {
-  if (Array.isArray(value)) return value.join(', ')
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
-  return String(value ?? '—')
-}
-
-const responsesCount = computed(() => application.value?.responses?.length ?? 0)
 
 // ─────────────────────────────────────────────
 // Interview scheduling & existing interviews
@@ -322,6 +316,85 @@ const interviewTypeLabels: Record<string, string> = {
 
 function formatInterviewDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// ─────────────────────────────────────────────
+// Current user (for comment authorship checks)
+// ─────────────────────────────────────────────
+
+const { data: session } = await authClient.useSession(useFetch)
+const currentUserId = computed(() => session.value?.user?.id)
+
+// ─────────────────────────────────────────────
+// Comments
+// ─────────────────────────────────────────────
+
+const { comments, total: commentsTotal, createComment, updateComment, deleteComment: deleteCommentById } = useComments({
+  targetType: 'application',
+  targetId: computed(() => props.applicationId),
+})
+
+const newCommentBody = ref('')
+const isSubmittingComment = ref(false)
+const editingCommentId = ref<string | null>(null)
+const editingCommentBody = ref('')
+
+async function submitComment() {
+  const body = newCommentBody.value.trim()
+  if (!body) return
+  isSubmittingComment.value = true
+  try {
+    await createComment(body)
+    newCommentBody.value = ''
+  } catch (err: any) {
+    if (handlePreviewReadOnlyError(err)) return
+    alert(err.data?.statusMessage ?? 'Failed to add comment')
+  } finally {
+    isSubmittingComment.value = false
+  }
+}
+
+function startEditComment(id: string, body: string) {
+  editingCommentId.value = id
+  editingCommentBody.value = body
+}
+
+async function saveEditComment() {
+  if (!editingCommentId.value) return
+  try {
+    await updateComment(editingCommentId.value, editingCommentBody.value.trim())
+    editingCommentId.value = null
+    editingCommentBody.value = ''
+  } catch (err: any) {
+    if (handlePreviewReadOnlyError(err)) return
+    alert(err.data?.statusMessage ?? 'Failed to update comment')
+  }
+}
+
+async function handleDeleteComment(id: string) {
+  try {
+    await deleteCommentById(id)
+  } catch (err: any) {
+    if (handlePreviewReadOnlyError(err)) return
+    alert(err.data?.statusMessage ?? 'Failed to delete comment')
+  }
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr)
+  const diffMs = Date.now() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  if (diffMins < 1) return 'just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 7) return `${diffDays}d ago`
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function getInitials(name: string): string {
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 }
 </script>
 
@@ -405,14 +478,18 @@ function formatInterviewDate(dateStr: string) {
             Documents ({{ documents.length }})
           </button>
           <button
-            v-if="responsesCount > 0"
-            class="cursor-pointer px-3 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px"
-            :class="activeTab === 'responses'
+            class="cursor-pointer px-3 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px inline-flex items-center gap-1.5"
+            :class="activeTab === 'comments'
               ? 'border-brand-600 text-brand-600'
               : 'border-transparent text-surface-500 hover:text-surface-700 hover:border-surface-300 dark:hover:text-surface-300'"
-            @click="activeTab = 'responses'"
+            @click="activeTab = 'comments'"
           >
-            Responses ({{ responsesCount }})
+            Comments
+            <span
+              v-if="commentsTotal > 0"
+              class="inline-flex items-center justify-center min-w-4 h-4 rounded-full px-1 text-[10px] font-semibold"
+              :class="activeTab === 'comments' ? 'bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-300' : 'bg-surface-100 text-surface-500 dark:bg-surface-800'"
+            >{{ commentsTotal }}</span>
           </button>
         </div>
       </div>
@@ -430,109 +507,28 @@ function formatInterviewDate(dateStr: string) {
           <!-- OVERVIEW TAB                            -->
           <!-- ═══════════════════════════════════════ -->
           <div v-if="activeTab === 'overview'" class="space-y-5">
-            <!-- Status & transitions -->
-            <div>
-              <div class="flex items-center gap-2 mb-3">
-                <span
-                  class="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-semibold capitalize ring-1 ring-inset"
-                  :class="statusBadgeClasses[application.status] ?? 'bg-surface-100 text-surface-600 ring-surface-200'"
-                >
-                  {{ application.status }}
-                </span>
-                <span class="text-sm text-surface-400">
-                  Applied {{ new Date(application.createdAt).toLocaleDateString() }}
-                </span>
-              </div>
 
-              <div v-if="allowedTransitions.length > 0" class="flex flex-wrap items-center gap-2">
-                <span class="text-xs font-medium text-surface-500 dark:text-surface-400 mr-0.5">Move to:</span>
-                <button
-                  v-for="nextStatus in allowedTransitions"
-                  :key="nextStatus"
-                  :disabled="isTransitioning"
-                  class="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
-                  :class="transitionClasses[nextStatus] ?? 'border border-surface-300 text-surface-600 hover:bg-surface-50'"
-                  @click="handleTransition(nextStatus)"
-                >
-                  {{ transitionLabels[nextStatus] ?? nextStatus }}
-                </button>
-              </div>
-            </div>
-
-            <!-- Candidate info -->
+            <!-- Score (prominent) -->
             <div class="rounded-xl border border-surface-200/80 dark:border-surface-800/60 bg-white dark:bg-surface-950 p-5 shadow-sm shadow-surface-900/[0.03] dark:shadow-none">
-              <div class="flex items-center gap-2.5 mb-4">
-                <div class="flex size-7 items-center justify-center rounded-lg bg-brand-50 dark:bg-brand-950/40">
-                  <User class="size-3.5 text-brand-600 dark:text-brand-400" />
-                </div>
-                <h3 class="text-sm font-semibold text-surface-800 dark:text-surface-200">Candidate</h3>
-              </div>
-              <dl class="grid grid-cols-2 gap-4 text-sm">
+              <div class="flex items-center justify-between">
                 <div>
-                  <dt class="text-xs font-medium text-surface-400 dark:text-surface-500 mb-1">Name</dt>
-                  <dd class="text-surface-800 dark:text-surface-200 font-medium">
-                    {{ application.candidate.firstName }} {{ application.candidate.lastName }}
-                  </dd>
+                  <div class="text-xs font-medium text-surface-400 dark:text-surface-500 mb-1">Score</div>
+                  <div class="text-3xl font-bold text-surface-900 dark:text-surface-50 tabular-nums">
+                    {{ application.score != null ? application.score : '—' }}
+                    <span v-if="application.score != null" class="text-base font-normal text-surface-400">/100</span>
+                  </div>
                 </div>
-                <div>
-                  <dt class="text-xs font-medium text-surface-400 dark:text-surface-500 mb-1">Email</dt>
-                  <dd class="text-surface-800 dark:text-surface-200 font-medium truncate">
-                    <a
-                      :href="`mailto:${application.candidate.email}`"
-                      target="_blank"
-                      class="hover:text-brand-600 dark:hover:text-brand-400 hover:underline cursor-pointer transition-colors"
-                    >{{ application.candidate.email }}</a>
-                  </dd>
-                </div>
-                <div v-if="application.candidate.phone">
-                  <dt class="text-xs font-medium text-surface-400 dark:text-surface-500 mb-1">Phone</dt>
-                  <dd class="text-surface-800 dark:text-surface-200 font-medium">
-                    {{ application.candidate.phone }}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-
-            <!-- Application details -->
-            <div class="rounded-xl border border-surface-200/80 dark:border-surface-800/60 bg-white dark:bg-surface-950 p-5 shadow-sm shadow-surface-900/[0.03] dark:shadow-none">
-              <div class="flex items-center gap-2.5 mb-4">
-                <div class="flex size-7 items-center justify-center rounded-lg bg-info-50 dark:bg-info-950/40">
-                  <Hash class="size-3.5 text-info-600 dark:text-info-400" />
-                </div>
-                <h3 class="text-sm font-semibold text-surface-800 dark:text-surface-200">Details</h3>
-              </div>
-              <dl class="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <dt class="text-xs font-medium text-surface-400 dark:text-surface-500 mb-1">Score</dt>
-                  <dd class="text-surface-800 dark:text-surface-200 font-medium">
-                    {{ application.score ?? '—' }}
-                  </dd>
-                </div>
-                <div>
-                  <dt class="text-xs font-medium text-surface-400 dark:text-surface-500 mb-1">Status</dt>
-                  <dd class="text-surface-800 dark:text-surface-200 font-medium capitalize">
-                    {{ application.status }}
-                  </dd>
-                </div>
-                <div>
-                  <dt class="text-xs font-medium text-surface-400 dark:text-surface-500 mb-1 inline-flex items-center gap-1">
+                <div class="flex flex-col items-end gap-1 text-xs text-surface-400 dark:text-surface-500">
+                  <span class="inline-flex items-center gap-1">
                     <Calendar class="size-3.5" />
-                    Applied
-                  </dt>
-                  <dd class="text-surface-800 dark:text-surface-200 font-medium">
-                    {{ new Date(application.createdAt).toLocaleDateString() }}
-                  </dd>
-                </div>
-                <div>
-                  <dt class="text-xs font-medium text-surface-400 dark:text-surface-500 mb-1 inline-flex items-center gap-1">
+                    Applied {{ new Date(application.createdAt).toLocaleDateString() }}
+                  </span>
+                  <span class="inline-flex items-center gap-1">
                     <Clock class="size-3.5" />
-                    Updated
-                  </dt>
-                  <dd class="text-surface-800 dark:text-surface-200 font-medium">
-                    {{ new Date(application.updatedAt).toLocaleDateString() }}
-                  </dd>
+                    Updated {{ new Date(application.updatedAt).toLocaleDateString() }}
+                  </span>
                 </div>
-              </dl>
+              </div>
             </div>
 
             <!-- Notes -->
@@ -584,6 +580,55 @@ function formatInterviewDate(dateStr: string) {
                 {{ application.notes }}
               </p>
               <p v-else class="text-sm text-surface-400 italic">No notes yet.</p>
+            </div>
+
+            <!-- Status & transitions -->
+            <div>
+              <div class="flex items-center gap-2 mb-3">
+                <span
+                  class="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-semibold capitalize ring-1 ring-inset"
+                  :class="statusBadgeClasses[application.status] ?? 'bg-surface-100 text-surface-600 ring-surface-200'"
+                >
+                  {{ application.status }}
+                </span>
+              </div>
+
+              <div v-if="allowedTransitions.length > 0" class="flex flex-wrap items-center gap-2">
+                <span class="text-xs font-medium text-surface-500 dark:text-surface-400 mr-0.5">Move to:</span>
+                <button
+                  v-for="nextStatus in allowedTransitions"
+                  :key="nextStatus"
+                  :disabled="isTransitioning"
+                  class="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
+                  :class="transitionClasses[nextStatus] ?? 'border border-surface-300 text-surface-600 hover:bg-surface-50'"
+                  @click="handleTransition(nextStatus)"
+                >
+                  {{ transitionLabels[nextStatus] ?? nextStatus }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Candidate contact info -->
+            <div class="rounded-xl border border-surface-200/80 dark:border-surface-800/60 bg-white dark:bg-surface-950 p-5 shadow-sm shadow-surface-900/[0.03] dark:shadow-none">
+              <div class="flex items-center gap-2.5 mb-3">
+                <div class="flex size-7 items-center justify-center rounded-lg bg-brand-50 dark:bg-brand-950/40">
+                  <User class="size-3.5 text-brand-600 dark:text-brand-400" />
+                </div>
+                <h3 class="text-sm font-semibold text-surface-800 dark:text-surface-200">Candidate</h3>
+              </div>
+              <div class="space-y-2 text-sm">
+                <a
+                  :href="`mailto:${application.candidate.email}`"
+                  class="flex items-center gap-2 text-surface-600 dark:text-surface-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
+                >
+                  <Mail class="size-3.5 shrink-0 text-surface-400" />
+                  <span class="truncate">{{ application.candidate.email }}</span>
+                </a>
+                <div v-if="application.candidate.phone" class="flex items-center gap-2 text-surface-600 dark:text-surface-400">
+                  <Phone class="size-3.5 shrink-0 text-surface-400" />
+                  {{ application.candidate.phone }}
+                </div>
+              </div>
             </div>
 
             <!-- Scheduled interviews -->
@@ -828,31 +873,100 @@ function formatInterviewDate(dateStr: string) {
             </template>
           </div>
           <!-- ═══════════════════════════════════════ -->
-          <!-- RESPONSES TAB                           -->
+          <!-- COMMENTS TAB                            -->
           <!-- ═══════════════════════════════════════ -->
-          <div v-if="activeTab === 'responses'" class="space-y-3">
+          <div v-if="activeTab === 'comments'" class="flex flex-col gap-4">
+            <!-- Empty state -->
             <div
-              v-if="responsesCount === 0"
+              v-if="comments.length === 0"
               class="rounded-xl border border-surface-200/80 dark:border-surface-800/60 bg-white dark:bg-surface-950 p-8 text-center shadow-sm shadow-surface-900/[0.03] dark:shadow-none"
             >
               <div class="flex size-14 items-center justify-center rounded-2xl bg-surface-100 dark:bg-surface-800/60 mx-auto mb-3">
-                <FileText class="size-6 text-surface-400 dark:text-surface-500" />
+                <MessageSquare class="size-6 text-surface-400 dark:text-surface-500" />
               </div>
-              <p class="text-sm font-medium text-surface-600 dark:text-surface-300">No application responses.</p>
+              <p class="text-sm font-medium text-surface-600 dark:text-surface-300">No comments yet.</p>
+              <p class="text-xs text-surface-400 mt-1">Be the first to add a comment.</p>
             </div>
 
+            <!-- Comment list -->
             <div v-else class="space-y-3">
               <div
-                v-for="response in application.responses"
-                :key="response.id"
+                v-for="c in comments"
+                :key="c.id"
                 class="rounded-xl border border-surface-200/80 dark:border-surface-800/60 bg-white dark:bg-surface-950 p-4 shadow-sm shadow-surface-900/[0.03] dark:shadow-none"
               >
-                <dt class="text-xs font-semibold text-surface-400 dark:text-surface-500 mb-1.5 uppercase tracking-wider">
-                  {{ response.question?.label ?? 'Unknown question' }}
-                </dt>
-                <dd class="text-sm text-surface-700 dark:text-surface-200 leading-relaxed">
-                  {{ formatResponseValue(response.value) }}
-                </dd>
+                <div v-if="editingCommentId === c.id">
+                  <textarea
+                    v-model="editingCommentBody"
+                    rows="3"
+                    class="w-full rounded-lg border border-surface-300 dark:border-surface-700 bg-white dark:bg-surface-800 px-3 py-2 text-sm text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
+                  />
+                  <div class="flex items-center gap-2 mt-2">
+                    <button
+                      class="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 transition-colors"
+                      @click="saveEditComment"
+                    >
+                      Save
+                    </button>
+                    <button
+                      class="rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-xs font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+                      @click="editingCommentId = null"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+                <template v-else>
+                  <div class="flex items-start gap-2.5">
+                    <div class="flex size-7 items-center justify-center rounded-full bg-brand-100 dark:bg-brand-900/40 text-brand-700 dark:text-brand-300 text-[10px] font-bold shrink-0 mt-0.5">
+                      {{ getInitials(c.authorName) }}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-baseline justify-between gap-2 mb-1">
+                        <span class="text-xs font-semibold text-surface-700 dark:text-surface-300">{{ c.authorName }}</span>
+                        <span class="text-[10px] text-surface-400 shrink-0">{{ formatRelativeTime(c.createdAt) }}</span>
+                      </div>
+                      <p class="text-sm text-surface-700 dark:text-surface-200 leading-relaxed whitespace-pre-wrap">{{ c.body }}</p>
+                      <div v-if="c.authorId === currentUserId" class="flex items-center gap-2 mt-2">
+                        <button
+                          class="text-[10px] text-surface-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-0.5"
+                          @click="startEditComment(c.id, c.body)"
+                        >
+                          <Pencil class="size-2.5" /> Edit
+                        </button>
+                        <button
+                          class="text-[10px] text-surface-400 hover:text-danger-600 dark:hover:text-danger-400 transition-colors flex items-center gap-0.5"
+                          @click="handleDeleteComment(c.id)"
+                        >
+                          <Trash2 class="size-2.5" /> Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Add comment input -->
+            <div class="rounded-xl border border-surface-200/80 dark:border-surface-800/60 bg-white dark:bg-surface-950 p-4 shadow-sm shadow-surface-900/[0.03] dark:shadow-none">
+              <textarea
+                v-model="newCommentBody"
+                rows="2"
+                placeholder="Add a comment…"
+                class="w-full rounded-lg border border-surface-300 dark:border-surface-700 bg-white dark:bg-surface-800 px-3 py-2 text-sm text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors resize-none"
+                @keydown.ctrl.enter.prevent="submitComment"
+                @keydown.meta.enter.prevent="submitComment"
+              />
+              <div class="flex items-center justify-between mt-2">
+                <span class="text-[10px] text-surface-400">Ctrl+Enter to submit</span>
+                <button
+                  :disabled="isSubmittingComment || !newCommentBody.trim()"
+                  class="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  @click="submitComment"
+                >
+                  <Send class="size-3" />
+                  {{ isSubmittingComment ? 'Posting…' : 'Comment' }}
+                </button>
               </div>
             </div>
           </div>
