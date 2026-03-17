@@ -798,6 +798,20 @@ const decisionLabels: Record<string, string> = {
             </dl>
           </div>
 
+          <!-- Documents -->
+          <div class="rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5">
+            <div class="flex items-center gap-2 mb-3">
+              <FileText class="size-4 text-surface-500 dark:text-surface-400" />
+              <h2 class="text-sm font-semibold text-surface-700 dark:text-surface-200">Documents</h2>
+            </div>
+            <UploadArea
+              variant="button"
+              :candidate-id="application.candidate.id"
+              :application-id="application.id"
+              @uploaded="refreshNuxtData(`application-${application.id}`)"
+            />
+          </div>
+
           <!-- Dates -->
           <div class="rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5">
             <div class="flex items-center gap-2 mb-3">

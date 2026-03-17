@@ -285,12 +285,8 @@ function openScheduleInterview(app: { id: string; job: { title: string } }) {
 // Documents
 // ─────────────────────────────────────────────
 
-const { uploadDocument, downloadDocument, getPreviewUrl, deleteDocument } = useDocuments()
+const { downloadDocument, getPreviewUrl, deleteDocument } = useDocuments()
 
-const fileInput = ref<HTMLInputElement | null>(null)
-const selectedDocType = ref<'resume' | 'cover_letter' | 'portfolio' | 'reference' | 'certificate' | 'other'>('resume')
-const isUploading = ref(false)
-const uploadError = ref<string | null>(null)
 const showDocDeleteConfirm = ref<string | null>(null)
 const isDeletingDoc = ref(false)
 
@@ -328,27 +324,8 @@ function closePreview() {
   previewError.value = null
 }
 
-function triggerFileSelect() {
-  fileInput.value?.click()
-}
-
-async function handleFileSelected(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-
-  uploadError.value = null
-  isUploading.value = true
-
-  try {
-    await uploadDocument(candidateId, file, selectedDocType.value)
-  } catch (err: any) {
-    const msg = err.data?.statusMessage ?? err.statusMessage ?? 'Upload failed'
-    uploadError.value = msg
-  } finally {
-    isUploading.value = false
-    input.value = ''
-  }
+async function onDocumentUploaded() {
+  await refreshNuxtData(`candidate-${candidateId}`)
 }
 
 async function handleDownload(docId: string) {
@@ -661,14 +638,6 @@ async function handleDeleteDoc(docId: string) {
 
         <!-- ─── Documents tab ─── -->
         <div v-if="activeTab === 'documents'">
-          <input
-            ref="fileInput"
-            type="file"
-            accept=".pdf,.doc,.docx"
-            class="hidden"
-            @change="handleFileSelected"
-          />
-
           <template v-if="showPreview">
             <div class="flex items-center justify-between mb-3">
               <button
@@ -721,36 +690,12 @@ async function handleDeleteDoc(docId: string) {
           </template>
 
           <template v-else>
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <select
-                  v-model="selectedDocType"
-                  class="rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 px-2.5 py-1.5 text-sm text-surface-700 dark:text-surface-300 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                >
-                  <option value="resume">Resume</option>
-                  <option value="cover_letter">Cover Letter</option>
-                  <option value="portfolio">Portfolio</option>
-                  <option value="reference">Reference</option>
-                  <option value="certificate">Certificate</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <button
-                :disabled="isUploading"
-                class="inline-flex items-center gap-1.5 rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                @click="triggerFileSelect"
-              >
-                <Upload class="size-3.5" />
-                {{ isUploading ? 'Uploading…' : 'Upload Document' }}
-              </button>
-            </div>
-
-            <div
-              v-if="uploadError"
-              class="rounded-lg border border-danger-200 dark:border-danger-800 bg-danger-50 dark:bg-danger-950 p-3 text-sm text-danger-700 dark:text-danger-400 mb-3"
-            >
-              {{ uploadError }}
-              <button class="underline ml-1 cursor-pointer" @click="uploadError = null">Dismiss</button>
+            <div class="mb-4">
+              <UploadArea
+                :candidate-id="candidateId"
+                @uploaded="onDocumentUploaded"
+                @error="showToast"
+              />
             </div>
 
             <div

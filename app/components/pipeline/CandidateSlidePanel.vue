@@ -47,6 +47,7 @@ const emit = defineEmits<{
   (e: 'delete-task', id: string): void
   (e: 'delete-comment', id: string): void
   (e: 'update-comment', id: string, body: string): void
+  (e: 'refresh-documents'): void
 }>()
 
 const { stageLabel, stageColorClass } = usePipelineConfig()
@@ -314,12 +315,20 @@ const showTransitionDropdown = ref(false)
 
       <!-- Timeline (scrollable) -->
       <div class="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        <!-- Upload area when Documents filter is active -->
+        <UploadArea
+          v-if="timelineFilter === 'documents' && applicationDetail?.candidate?.id"
+          :candidate-id="applicationDetail.candidate.id"
+          :application-id="application?.id"
+          @uploaded="$emit('refresh-documents')"
+        />
+
         <div v-if="isDetailLoading && !filteredFeed.length" class="flex items-center justify-center py-8">
           <div class="size-6 rounded-full border-2 border-brand-200 border-t-brand-600 animate-spin" />
         </div>
 
         <div v-else-if="filteredFeed.length === 0" class="py-8 text-center">
-          <p class="text-xs text-surface-400">No activity yet.</p>
+          <p class="text-xs text-surface-400">{{ timelineFilter === 'documents' ? 'No documents yet.' : 'No activity yet.' }}</p>
         </div>
 
         <template v-else>
@@ -360,19 +369,40 @@ const showTransitionDropdown = ref(false)
 
             <!-- Document -->
             <div v-else-if="item.kind === 'document'" class="flex items-center gap-2.5">
-              <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-100 dark:bg-surface-800">
-                <FileText class="size-3 text-surface-400" />
+              <div
+                class="flex size-6 shrink-0 items-center justify-center rounded-full"
+                :class="item.data.mimeType === 'application/pdf'
+                  ? 'bg-danger-50 dark:bg-danger-950/40'
+                  : 'bg-surface-100 dark:bg-surface-800'"
+              >
+                <FileText
+                  class="size-3"
+                  :class="item.data.mimeType === 'application/pdf'
+                    ? 'text-danger-500 dark:text-danger-400'
+                    : 'text-surface-400'"
+                />
               </div>
               <div class="flex-1 min-w-0">
                 <span class="text-xs text-surface-700 dark:text-surface-300 truncate block">{{ item.data.originalFilename }}</span>
                 <span class="text-[10px] text-surface-400">{{ formatDocumentType(item.data.type) }} · {{ timeAgo(item.data.createdAt) }}</span>
               </div>
-              <a
-                :href="`/api/documents/${item.data.id}/download`"
-                class="text-[10px] text-brand-600 hover:text-brand-700 dark:text-brand-400 font-medium"
-              >
-                Download
-              </a>
+              <div class="flex items-center gap-2 shrink-0">
+                <a
+                  v-if="item.data.mimeType === 'application/pdf'"
+                  :href="`/api/documents/${item.data.id}/preview`"
+                  target="_blank"
+                  rel="noopener"
+                  class="text-[10px] text-brand-600 hover:text-brand-700 dark:text-brand-400 font-medium"
+                >
+                  Preview
+                </a>
+                <a
+                  :href="`/api/documents/${item.data.id}/download`"
+                  class="text-[10px] text-surface-500 hover:text-surface-700 dark:text-surface-400 dark:hover:text-surface-200 font-medium"
+                >
+                  Download
+                </a>
+              </div>
             </div>
 
             <!-- Interview -->
