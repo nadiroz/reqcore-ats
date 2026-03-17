@@ -1,6 +1,19 @@
 <script setup lang="ts">
 import { FileText, Search, X, ChevronDown, Briefcase, Mail, Clock, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-vue-next'
 
+// ── Inline sidebar ─────────────────────────────────────────────────────────────
+
+const selectedApplicationId = ref<string | null>(null)
+const sidebarOpen = computed(() => selectedApplicationId.value !== null)
+
+function openApplication(id: string) {
+  selectedApplicationId.value = id
+}
+
+function closeSidebar() {
+  selectedApplicationId.value = null
+}
+
 definePageMeta({
   layout: 'dashboard',
   middleware: ['auth', 'require-org'],
@@ -401,15 +414,13 @@ const statusLabels: Record<Status, string> = {
               v-for="app in filteredApplications"
               :key="app.id"
               class="group bg-white dark:bg-surface-900 hover:bg-surface-50 dark:hover:bg-surface-800/60 transition-colors cursor-pointer"
-              @click="$router.push($localePath(`/dashboard/applications/${app.id}`))"
+              :class="selectedApplicationId === app.id ? 'bg-brand-50/50 dark:bg-brand-950/30' : ''"
+              @click="openApplication(app.id)"
             >
               <td class="px-4 py-3">
-                <NuxtLink
-                  :to="$localePath(`/dashboard/applications/${app.id}`)"
-                  class="font-semibold text-surface-900 dark:text-surface-100 group-hover:text-brand-600 transition-colors whitespace-nowrap"
-                >
+                <span class="font-semibold text-surface-900 dark:text-surface-100 group-hover:text-brand-600 transition-colors whitespace-nowrap">
                   {{ app.candidateFirstName }} {{ app.candidateLastName }}
-                </NuxtLink>
+                </span>
               </td>
               <td class="px-4 py-3 text-surface-500 dark:text-surface-400 hidden lg:table-cell">
                 <span class="inline-flex items-center gap-1.5">
@@ -459,4 +470,13 @@ const statusLabels: Record<Status, string> = {
       </p>
     </div>
   </div>
+
+  <!-- Inline application detail sidebar -->
+  <CandidateDetailSidebar
+    v-if="selectedApplicationId"
+    :application-id="selectedApplicationId"
+    :open="sidebarOpen"
+    @close="closeSidebar"
+    @updated="refresh"
+  />
 </template>
