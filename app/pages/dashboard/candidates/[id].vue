@@ -271,14 +271,13 @@ function formatFileSize(bytes: number | null | undefined): string {
 
 <template>
   <div class="mx-auto max-w-3xl">
-    <!-- Back link -->
-    <NuxtLink
-      :to="$localePath('/dashboard/candidates')"
-      class="inline-flex items-center gap-1 text-sm text-surface-500 hover:text-surface-700 mb-6 transition-colors"
-    >
-      <ArrowLeft class="size-4" />
-      Back to Candidates
-    </NuxtLink>
+    <!-- Breadcrumb -->
+    <div class="mb-6">
+      <AppBreadcrumb :items="[
+        { label: 'Candidates', to: $localePath('/dashboard/candidates') },
+        { label: candidate ? `${candidate.firstName} ${candidate.lastName}` : '…' },
+      ]" />
+    </div>
 
     <!-- Loading -->
     <div v-if="fetchStatus === 'pending'" class="text-center py-12 text-surface-400">

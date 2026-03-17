@@ -1421,6 +1421,14 @@ function closeDocPreview() {
         </div>
       </Teleport>
 
+      <!-- Breadcrumb -->
+      <div class="shrink-0 border-b border-surface-100 bg-white px-5 py-2.5 dark:border-surface-800/60 dark:bg-surface-900">
+        <AppBreadcrumb :items="[
+          { label: 'Jobs', to: $localePath('/dashboard/jobs') },
+          { label: jobData?.title ?? '…' },
+        ]" />
+      </div>
+
       <!-- ═══════════════════════════════════════ -->
       <!-- PIPELINE STATUS TABS                     -->
       <!-- ═══════════════════════════════════════ -->

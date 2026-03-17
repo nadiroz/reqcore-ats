@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, User, Briefcase, Calendar, Clock, Hash, FileText, MessageSquare, Send, Pencil, Trash2 } from 'lucide-vue-next'
+import { User, Briefcase, Calendar, Clock, Hash, FileText, MessageSquare, Send, Pencil, Trash2 } from 'lucide-vue-next'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
 
 definePageMeta({
@@ -194,14 +194,13 @@ function formatResponseValue(value: unknown): string {
 
 <template>
   <div class="mx-auto max-w-5xl">
-    <!-- Back link -->
-    <NuxtLink
-      :to="$localePath('/dashboard/applications')"
-      class="mb-4 inline-flex items-center gap-1 rounded-full border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 px-3 py-1.5 text-sm text-surface-600 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
-    >
-      <ArrowLeft class="size-4" />
-      Back to Applications
-    </NuxtLink>
+    <!-- Breadcrumb -->
+    <div class="mb-4">
+      <AppBreadcrumb :items="[
+        { label: 'Applications', to: $localePath('/dashboard/applications') },
+        { label: application ? `${application.candidate.firstName} ${application.candidate.lastName}` : '…' },
+      ]" />
+    </div>
 
     <!-- Loading -->
     <div v-if="fetchStatus === 'pending'" class="text-center py-12 text-surface-400">
