@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GripVertical, Plus, Trash2, Pencil, Check, X, CheckCircle2 } from 'lucide-vue-next'
+import { GripVertical, Plus, Trash2, Pencil, Check, X, CheckCircle2, Mail } from 'lucide-vue-next'
 import type { PipelineStage, PipelineTransitionRule } from '~/composables/usePipelineConfig'
 
 definePageMeta({
@@ -65,6 +65,11 @@ function cancelEdit() {
 
 function toggleGate(stage: PipelineStage) {
   stage.gate = !stage.gate
+  markDirty()
+}
+
+function toggleNotifyCandidate(stage: PipelineStage) {
+  stage.notifyCandidate = !stage.notifyCandidate
   markDirty()
 }
 
@@ -150,7 +155,7 @@ function discard() {
     <div class="mb-6">
       <h1 class="text-xl font-bold text-surface-900 dark:text-surface-50">Pipeline Stages</h1>
       <p class="text-sm text-surface-500 dark:text-surface-400 mt-1">
-        Rename stages, add custom stages, or mark a stage as a gate checkpoint. Built-in stages cannot be removed.
+        Rename stages, add custom stages, mark a stage as a gate checkpoint, or enable candidate email notifications per stage. Built-in stages cannot be removed.
       </p>
     </div>
 
@@ -200,11 +205,23 @@ function discard() {
                 <CheckCircle2 class="size-3" /> gate
               </span>
               <span v-else-if="!stage.builtin" class="text-xs text-brand-500 dark:text-brand-400">custom</span>
+              <span v-if="stage.notifyCandidate" class="inline-flex items-center gap-0.5 text-xs text-info-500 dark:text-info-400">
+                <Mail class="size-3" /> emails candidate
+              </span>
             </div>
           </div>
 
           <!-- Actions -->
           <div class="flex items-center gap-1 shrink-0">
+            <!-- Notify candidate toggle -->
+            <button
+              class="p-1 rounded transition-colors"
+              :class="stage.notifyCandidate ? 'text-info-500 hover:text-info-700 dark:hover:text-info-300' : 'text-surface-400 hover:text-info-500'"
+              :title="stage.notifyCandidate ? 'Disable candidate email' : 'Email candidate on entry'"
+              @click="toggleNotifyCandidate(stage)"
+            >
+              <Mail class="size-3.5" />
+            </button>
             <!-- Gate toggle (non-terminal stages only) -->
             <button
               v-if="!stage.terminal"

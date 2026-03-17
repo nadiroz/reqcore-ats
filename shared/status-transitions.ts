@@ -19,6 +19,8 @@ export interface PipelineStage {
   builtin: boolean
   /** When true, this stage is a checkpoint/gate — visually distinct in the Kanban */
   gate?: boolean
+  /** When true, send a status update email to the candidate on entry */
+  notifyCandidate?: boolean
 }
 
 /**

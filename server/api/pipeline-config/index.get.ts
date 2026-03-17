@@ -7,7 +7,7 @@ import { DEFAULT_PIPELINE_STAGES } from '~~/shared/status-transitions'
  * Returns the org's pipeline config, falling back to defaults if none is set.
  */
 export default defineEventHandler(async (event) => {
-  const session = await requirePermission(event, { org: ['read'] })
+  const session = await requirePermission(event, { job: ['read'] })
   const orgId = session.session.activeOrganizationId
 
   const settings = await db.query.orgSettings.findFirst({

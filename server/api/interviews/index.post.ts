@@ -1,7 +1,8 @@
 import { and, eq } from 'drizzle-orm'
-import { interview, application, candidate, job, organization } from '../../database/schema'
+import { interview, application, candidate, job, organization, member } from '../../database/schema'
 import { createInterviewSchema } from '../../utils/schemas/interview'
 import { createCalendarEvent } from '../../utils/google-calendar'
+import { createNotification } from '../../utils/notify'
 
 export default defineEventHandler(async (event) => {
   const session = await requirePermission(event, { interview: ['create'] })
@@ -107,6 +108,28 @@ export default defineEventHandler(async (event) => {
       scheduledAt: body.scheduledAt,
     },
   })
+
+  // Notify org members about the new interview (fire-and-forget)
+  const scheduledDate = new Date(body.scheduledAt).toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
+  db.query.member.findMany({
+    where: eq(member.organizationId, orgId),
+    columns: { userId: true },
+  }).then((members) => {
+    for (const m of members) {
+      if (m.userId === session.user.id) continue
+      createNotification({
+        orgId,
+        userId: m.userId,
+        type: 'interview_scheduled',
+        title: `Interview scheduled: ${body.title}`,
+        body: `${scheduledDate} (${body.duration} min)`,
+        resourceType: 'application',
+        resourceId: body.applicationId,
+      }).catch(() => {})
+    }
+  }).catch(() => {})
 
   setResponseStatus(event, 201)
   return {

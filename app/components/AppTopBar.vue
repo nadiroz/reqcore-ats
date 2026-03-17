@@ -6,8 +6,10 @@ import {
   ChevronDown, Menu, X, Users, ChevronLeft,
   LayoutDashboard, Calendar, ArrowUpCircle,
   Cloud, Server, Sparkles, Search, User,
-  ClipboardCheck,
+  ClipboardCheck, MessageCircle, CheckSquare,
+  ArrowRight, ClipboardList, ShieldCheck,
 } from 'lucide-vue-next'
+import { timeAgo } from '~/utils/pipeline-helpers'
 
 const route = useRoute()
 const localePath = useLocalePath()
@@ -129,6 +131,30 @@ function onClickOutsideNotifications(e: MouseEvent) {
 watch(showNotificationDropdown, (val: boolean) => {
   if (val) fetchNotifications()
 })
+
+// Notification type → icon + color mapping
+const notificationTypeConfig: Record<string, { icon: any; colorClass: string }> = {
+  application_status_changed: { icon: ArrowRight, colorClass: 'text-brand-500 bg-brand-50 dark:bg-brand-950/40' },
+  comment_added: { icon: MessageCircle, colorClass: 'text-info-500 bg-info-50 dark:bg-info-950/40' },
+  approval_requested: { icon: ShieldCheck, colorClass: 'text-warning-500 bg-warning-50 dark:bg-warning-950/40' },
+  approval_resolved: { icon: ShieldCheck, colorClass: 'text-success-500 bg-success-50 dark:bg-success-950/40' },
+  assessment_decision: { icon: ClipboardList, colorClass: 'text-violet-500 bg-violet-50 dark:bg-violet-950/40' },
+  assessment_advanced: { icon: ClipboardList, colorClass: 'text-brand-500 bg-brand-50 dark:bg-brand-950/40' },
+  interview_scheduled: { icon: Calendar, colorClass: 'text-info-500 bg-info-50 dark:bg-info-950/40' },
+  task_created: { icon: CheckSquare, colorClass: 'text-warning-500 bg-warning-50 dark:bg-warning-950/40' },
+}
+
+function getNotificationConfig(type: string) {
+  return notificationTypeConfig[type] ?? { icon: Bell, colorClass: 'text-surface-400 bg-surface-100 dark:bg-surface-800' }
+}
+
+function handleNotificationClick(n: any) {
+  markRead(n.id)
+  showNotificationDropdown.value = false
+  if (n.resourceType === 'application' && n.resourceId) {
+    navigateTo(localePath(`/dashboard/applications/${n.resourceId}`))
+  }
+}
 
 onMounted(() => document.addEventListener('click', onClickOutsideNotifications))
 onUnmounted(() => document.removeEventListener('click', onClickOutsideNotifications))
@@ -343,26 +369,37 @@ onUnmounted(() => {
                 <div v-if="notifications.length === 0" class="px-4 py-6 text-center">
                   <p class="text-sm text-surface-400">No notifications yet</p>
                 </div>
-                <div v-else class="max-h-72 overflow-y-auto divide-y divide-surface-100 dark:divide-surface-800">
+                <div v-else class="max-h-80 overflow-y-auto divide-y divide-surface-100 dark:divide-surface-800">
                   <button
                     v-for="n in notifications"
                     :key="n.id"
                     class="flex items-start gap-3 w-full px-4 py-3 text-left hover:bg-surface-50 dark:hover:bg-surface-800/60 transition-colors cursor-pointer border-0 bg-transparent"
-                    @click="markRead(n.id); showNotificationDropdown = false"
+                    @click="handleNotificationClick(n)"
                   >
-                    <span
-                      class="mt-1.5 size-2 shrink-0 rounded-full"
-                      :class="n.readAt ? 'bg-transparent' : 'bg-brand-500'"
-                    />
+                    <div
+                      class="mt-0.5 flex items-center justify-center size-7 shrink-0 rounded-lg"
+                      :class="getNotificationConfig(n.type).colorClass"
+                    >
+                      <component :is="getNotificationConfig(n.type).icon" class="size-3.5" />
+                    </div>
                     <div class="min-w-0 flex-1">
-                      <p
-                        class="text-sm truncate"
-                        :class="n.readAt ? 'text-surface-500 dark:text-surface-400' : 'font-medium text-surface-800 dark:text-surface-200'"
-                      >
-                        {{ n.title }}
-                      </p>
+                      <div class="flex items-center gap-2">
+                        <p
+                          class="text-sm truncate flex-1"
+                          :class="n.readAt ? 'text-surface-500 dark:text-surface-400' : 'font-medium text-surface-800 dark:text-surface-200'"
+                        >
+                          {{ n.title }}
+                        </p>
+                        <span
+                          v-if="!n.readAt"
+                          class="size-1.5 shrink-0 rounded-full bg-brand-500"
+                        />
+                      </div>
                       <p v-if="n.body" class="text-xs text-surface-400 dark:text-surface-500 truncate mt-0.5">
                         {{ n.body }}
+                      </p>
+                      <p class="text-[11px] text-surface-400 dark:text-surface-500 mt-1">
+                        {{ timeAgo(n.createdAt) }}
                       </p>
                     </div>
                   </button>

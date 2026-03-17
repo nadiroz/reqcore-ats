@@ -12,7 +12,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 import { organization, user } from './auth'
-import type { PipelineConfig } from '~~/shared/status-transitions'
+import type { PipelineStage, PipelineTransitionRule, PipelineConfig } from '~~/shared/status-transitions'
 import type { AssessmentTemplateConfig, AssessmentScores } from '~~/shared/assessment-types'
 
 // ─────────────────────────────────────────────
@@ -235,23 +235,25 @@ export const joinRequest = pgTable('join_request', {
 // Org Settings (pipeline config, etc.)
 // ─────────────────────────────────────────────
 
-export interface PipelineStage {
-  id: string
-  label: string
-  terminal: boolean
-  builtin: boolean
-  gate?: boolean
+export type { PipelineStage, PipelineTransitionRule, PipelineConfig }
+
+/**
+ * Per-type notification delivery preferences.
+ * Each key is a notification type, value controls which channels are enabled.
+ */
+export interface NotificationChannelPrefs {
+  inApp?: boolean
+  email?: boolean
 }
 
-export interface PipelineTransitionRule {
-  from: string
-  to: string
-  requiresApproval: boolean
-}
-
-export interface PipelineConfig {
-  stages: PipelineStage[]
-  transitionRules?: PipelineTransitionRule[]
+export interface NotificationPreferences {
+  application_status_changed?: NotificationChannelPrefs
+  comment_added?: NotificationChannelPrefs
+  approval_requested?: NotificationChannelPrefs
+  approval_resolved?: NotificationChannelPrefs
+  assessment_decision?: NotificationChannelPrefs
+  interview_scheduled?: NotificationChannelPrefs
+  task_created?: NotificationChannelPrefs
 }
 
 /**
@@ -261,6 +263,7 @@ export interface PipelineConfig {
 export const orgSettings = pgTable('org_settings', {
   organizationId: text('organization_id').primaryKey().references(() => organization.id, { onDelete: 'cascade' }),
   pipelineConfig: jsonb('pipeline_config').$type<PipelineConfig>(),
+  notificationPreferences: jsonb('notification_preferences').$type<NotificationPreferences>(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 

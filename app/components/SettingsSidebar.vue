@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  Building2, Users, UserCircle, ChevronLeft, Settings, Plug, GitBranch,
+  Building2, Users, UserCircle, ChevronLeft, Settings, Plug, GitBranch, Bell,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -26,6 +26,13 @@ const settingsNav = [
     description: 'Stages & labels',
     to: '/dashboard/settings/pipeline',
     icon: GitBranch,
+    exact: true,
+  },
+  {
+    label: 'Notifications',
+    description: 'Delivery preferences',
+    to: '/dashboard/settings/notifications',
+    icon: Bell,
     exact: true,
   },
   {

@@ -1,8 +1,8 @@
 import { eq, and } from 'drizzle-orm'
-import { application, orgSettings, member } from '../../database/schema'
+import { application, orgSettings, member, candidate, job, organization } from '../../database/schema'
 import { applicationIdParamSchema, updateApplicationSchema } from '../../utils/schemas/application'
 import { computeTransitions, DEFAULT_PIPELINE_STAGES } from '~~/shared/status-transitions'
-import { createNotification } from '../../utils/notify'
+import { createNotification, notifyCandidateStatusChange } from '../../utils/notify'
 
 /**
  * PATCH /api/applications/:id
@@ -25,19 +25,19 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Not found' })
   }
 
-  // Validate status transition if status is being changed
+  // Load pipeline stages for validation and candidate notification
+  let pipelineStages = DEFAULT_PIPELINE_STAGES
   if (body.status && body.status !== current.status) {
-    let stages = DEFAULT_PIPELINE_STAGES
     try {
       const settings = await db.query.orgSettings.findFirst({
         where: eq(orgSettings.organizationId, orgId),
         columns: { pipelineConfig: true },
       })
-      stages = settings?.pipelineConfig?.stages ?? DEFAULT_PIPELINE_STAGES
+      pipelineStages = settings?.pipelineConfig?.stages ?? DEFAULT_PIPELINE_STAGES
     } catch (e) {
       console.error('[pipeline-config] Falling back to defaults:', e)
     }
-    const transitions = computeTransitions(stages)
+    const transitions = computeTransitions(pipelineStages)
     const allowed = transitions[current.status] ?? []
     if (!allowed.includes(body.status)) {
       throw createError({
@@ -95,6 +95,35 @@ export default defineEventHandler(async (event) => {
         }).catch(() => {})
       }
     }).catch(() => {})
+
+    // Send candidate-facing email if the target stage has notifyCandidate enabled
+    const targetStage = pipelineStages.find(s => s.id === body.status)
+    if (targetStage?.notifyCandidate) {
+      Promise.all([
+        db.query.application.findFirst({
+          where: eq(application.id, id),
+          columns: { candidateId: true, jobId: true },
+          with: {
+            candidate: { columns: { email: true, firstName: true, lastName: true } },
+            job: { columns: { title: true } },
+          },
+        }),
+        db.query.organization.findFirst({
+          where: eq(organization.id, orgId),
+          columns: { name: true },
+        }),
+      ]).then(([appData, org]) => {
+        if (appData?.candidate && appData?.job) {
+          notifyCandidateStatusChange({
+            candidateEmail: appData.candidate.email,
+            candidateName: `${appData.candidate.firstName} ${appData.candidate.lastName}`,
+            jobTitle: appData.job.title,
+            orgName: org?.name ?? 'the hiring team',
+            newStageLabel: targetStage.label,
+          }).catch(() => {})
+        }
+      }).catch(() => {})
+    }
   }
 
   return updated

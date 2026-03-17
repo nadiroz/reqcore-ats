@@ -9,6 +9,7 @@ const pipelineStageSchema = z.object({
   terminal: z.boolean(),
   builtin: z.boolean(),
   gate: z.boolean().optional(),
+  notifyCandidate: z.boolean().optional(),
 })
 
 const transitionRuleSchema = z.object({
@@ -28,7 +29,7 @@ const patchBodySchema = z.object({
  * Validates that all builtin terminal stages (hired, rejected) are preserved.
  */
 export default defineEventHandler(async (event) => {
-  const session = await requirePermission(event, { org: ['update'] })
+  const session = await requirePermission(event, { organization: ['update'] })
   const orgId = session.session.activeOrganizationId
 
   const body = await readValidatedBody(event, patchBodySchema.parse)

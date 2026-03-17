@@ -1,7 +1,8 @@
 import { eq, and } from 'drizzle-orm'
 import { z } from 'zod'
-import { application, applicationTask } from '../../../../database/schema'
+import { application, applicationTask, member } from '../../../../database/schema'
 import { applicationIdParamSchema } from '../../../../utils/schemas/application'
+import { createNotification } from '../../../../utils/notify'
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
@@ -36,6 +37,25 @@ export default defineEventHandler(async (event) => {
     dueDate: body.dueDate ? new Date(body.dueDate) : null,
     createdById: session.user.id,
   }).returning()
+
+  // Notify org members about the new task (fire-and-forget)
+  db.query.member.findMany({
+    where: eq(member.organizationId, orgId),
+    columns: { userId: true },
+  }).then((members) => {
+    for (const m of members) {
+      if (m.userId === session.user.id) continue
+      createNotification({
+        orgId,
+        userId: m.userId,
+        type: 'task_created',
+        title: `New task: ${body.title}`,
+        body: body.dueDate ? `Due ${new Date(body.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : undefined,
+        resourceType: 'application',
+        resourceId: applicationId,
+      }).catch(() => {})
+    }
+  }).catch(() => {})
 
   setResponseStatus(event, 201)
   return created

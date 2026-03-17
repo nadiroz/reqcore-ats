@@ -1,7 +1,8 @@
 import { eq, and } from 'drizzle-orm'
 import { z } from 'zod'
-import { application, applicationAssessment } from '../../../../database/schema'
+import { application, applicationAssessment, member } from '../../../../database/schema'
 import { applicationIdParamSchema } from '../../../../utils/schemas/application'
+import { createNotification } from '../../../../utils/notify'
 import type { AssessmentScores } from '~~/shared/assessment-types'
 
 const taskScoreSchema = z.object({
@@ -92,6 +93,49 @@ export default defineEventHandler(async (event) => {
     await db.update(application)
       .set({ score: scoreValue, updatedAt: new Date() })
       .where(eq(application.id, applicationId))
+  }
+
+  // Notify org members when a decision is made (fire-and-forget)
+  if (body.decision && body.decision !== 'pending') {
+    const decisionLabel = body.decision === 'hire' ? 'Hire' : body.decision === 'no_hire' ? 'No Hire' : 'Borderline'
+    db.query.member.findMany({
+      where: eq(member.organizationId, orgId),
+      columns: { userId: true },
+    }).then((members) => {
+      for (const m of members) {
+        if (m.userId === session.user.id) continue
+        createNotification({
+          orgId,
+          userId: m.userId,
+          type: 'assessment_decision',
+          title: `Assessment decision: ${decisionLabel}`,
+          body: `Assessment for application has been evaluated`,
+          resourceType: 'application',
+          resourceId: applicationId,
+        }).catch(() => {})
+      }
+    }).catch(() => {})
+  }
+
+  // Notify when assessment is advanced to round 2
+  if (body.advanceToRound2) {
+    db.query.member.findMany({
+      where: eq(member.organizationId, orgId),
+      columns: { userId: true },
+    }).then((members) => {
+      for (const m of members) {
+        if (m.userId === session.user.id) continue
+        createNotification({
+          orgId,
+          userId: m.userId,
+          type: 'assessment_advanced',
+          title: 'Assessment advanced to Round 2',
+          body: `Candidate has been advanced to assessment round 2`,
+          resourceType: 'application',
+          resourceId: applicationId,
+        }).catch(() => {})
+      }
+    }).catch(() => {})
   }
 
   return updated
