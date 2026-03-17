@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import {
-  UserRound, UserPlus, Pencil, Trash2, MoreHorizontal, X,
+  UserRound, UserPlus, Pencil, Trash2, MoreHorizontal, X, CheckCircle2,
 } from 'lucide-vue-next'
 import { z } from 'zod'
+import draggable from 'vuedraggable'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
 import { JOB_STATUS_TRANSITIONS } from '~~/shared/status-transitions'
 
@@ -53,9 +54,6 @@ const applications = computed(() => appData.value?.data ?? [])
 // Board state: selected stage + selected candidate
 // ─────────────────────────────────────────────
 
-const initialStage = (route.query.stage as string) || 'new'
-const focusStatus = ref(initialStage)
-
 const statusCounts = computed(() => {
   const counts: Record<string, number> = {}
   for (const s of pipelineStages.value) counts[s.id] = 0
@@ -65,16 +63,65 @@ const statusCounts = computed(() => {
   return counts
 })
 
-// Group applications by status for board columns
+// Group applications by status for board columns (reactive for drag-and-drop)
 const applicationsByStatus = computed(() => {
   const groups: Record<string, typeof applications.value> = {}
   for (const s of pipelineStages.value) groups[s.id] = []
   for (const app of applications.value) {
     if (!groups[app.status]) groups[app.status] = []
-    groups[app.status].push(app)
+    groups[app.status]!.push(app)
   }
   return groups
 })
+
+// Drag-and-drop handler: when a card is dropped into a new column
+const isDragging = ref(false)
+
+function handleDragChange(evt: any, targetStageId: string) {
+  // Only handle "added" events (card dropped into this column)
+  if (!evt.added) return
+  const movedItem = evt.added.element
+  if (!movedItem || movedItem.status === targetStageId) return
+  processDrop(movedItem, targetStageId)
+}
+
+async function processDrop(movedItem: any, targetStageId: string) {
+  const stage = pipelineStages.value.find((s: any) => s.id === targetStageId)
+  const isTerminal = stage?.terminal ?? false
+  const needsApproval = requiresApproval(movedItem.status, targetStageId)
+
+  if (isTerminal || needsApproval) {
+    // Terminal and approval transitions go through the modal
+    selectedApplicationId.value = movedItem.id
+    openTransitionModal(targetStageId)
+    await refreshApps()
+    return
+  }
+
+  // Direct transition for non-terminal, non-approval stages
+  const previousStatus = movedItem.status
+  isMutating.value = true
+  try {
+    await $fetch(`/api/applications/${movedItem.id}`, {
+      method: 'PATCH',
+      body: { status: targetStageId },
+    })
+    track('pipeline_stage_changed', { from_stage: previousStatus, to_stage: targetStageId })
+    await refreshApps()
+
+    // Show undo toast
+    if (undoTimer) clearTimeout(undoTimer)
+    pendingUndo.value = { applicationId: movedItem.id, fromStatus: previousStatus, toStatus: targetStageId }
+    undoTimer = setTimeout(() => { pendingUndo.value = null }, 8000)
+  } catch (err: any) {
+    if (handlePreviewReadOnlyError(err)) return
+    statusError.value = err?.data?.statusMessage ?? 'Failed to move candidate'
+    setTimeout(() => { statusError.value = null }, 6000)
+    await refreshApps()
+  } finally {
+    isMutating.value = false
+  }
+}
 
 // Slide-in panel state
 const selectedApplicationId = ref<string | null>(null)
@@ -543,6 +590,7 @@ useKeyboardShortcuts([
 // Loading + SEO
 // ─────────────────────────────────────────────
 
+const isFullscreen = ref(false)
 const isLoading = computed(() => jobFetchStatus.value === 'pending' || appFetchStatus.value === 'pending')
 
 useSeoMeta({
@@ -698,21 +746,7 @@ useSeoMeta({
         </div>
       </Teleport>
 
-      <!-- Breadcrumb -->
-      <div class="shrink-0 border-b border-surface-100 bg-white px-5 py-2.5 dark:border-surface-800/60 dark:bg-surface-900">
-        <AppBreadcrumb :items="[
-          { label: 'Jobs', to: $localePath('/dashboard/jobs') },
-          { label: jobData?.title ?? '\u2026' },
-        ]" />
-      </div>
-
-      <!-- Pipeline stage bar -->
-      <PipelineStageBar
-        :stages="pipelineStages"
-        :selected-stage="focusStatus"
-        :counts="statusCounts"
-        @select="focusStatus = $event"
-      />
+      <!-- Pipeline stage bar removed: stages now serve as column headers directly -->
 
       <!-- ═══════════════════════════════════════ -->
       <!-- BOARD LAYOUT                             -->
@@ -720,91 +754,116 @@ useSeoMeta({
       <div class="flex flex-1 overflow-hidden">
         <!-- Board columns (scrollable horizontally) -->
         <div class="flex flex-1 overflow-x-auto">
-          <div
-            v-for="stage in pipelineStages.filter(s => !s.terminal)"
-            :key="stage.id"
-            class="flex w-72 shrink-0 flex-col border-r border-surface-200/80 dark:border-surface-800/60"
-            :class="stage.gate ? 'w-60' : 'w-72'"
-          >
-            <!-- Column header -->
-            <div class="shrink-0 px-3 py-2.5 bg-surface-50/50 dark:bg-surface-900/50 border-b border-surface-100 dark:border-surface-800/40">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <span class="size-2 rounded-full" :class="stageColorClass(stage.id, 'dot')" />
-                  <span class="text-xs font-semibold text-surface-700 dark:text-surface-300">{{ stage.label }}</span>
-                </div>
-                <span class="text-[10px] font-semibold text-surface-400 dark:text-surface-500 tabular-nums">
-                  {{ statusCounts[stage.id] ?? 0 }}
-                </span>
-              </div>
-            </div>
-
-            <!-- Column cards -->
-            <div class="flex-1 overflow-y-auto p-2 space-y-2">
-              <div
-                v-if="(applicationsByStatus[stage.id] ?? []).length === 0"
-                class="flex flex-col items-center justify-center py-8 text-center"
-              >
-                <UserRound class="size-5 text-surface-300 dark:text-surface-600 mb-1.5" />
-                <p class="text-[11px] text-surface-400 dark:text-surface-500">No candidates</p>
-              </div>
-
-              <PipelineCandidateCard
-                v-for="app in (applicationsByStatus[stage.id] ?? [])"
-                :key="app.id"
-                :id="app.id"
-                :candidate-first-name="app.candidateFirstName"
-                :candidate-last-name="app.candidateLastName"
-                :candidate-email="app.candidateEmail"
-                :score="app.score"
-                :created-at="app.createdAt"
-                :status="app.status"
-                :selected="selectedApplicationId === app.id"
-                :has-interview="applicationsWithInterviews.has(app.id)"
-                @click="selectCandidate(app.id)"
-              />
-            </div>
-          </div>
-
-          <!-- Terminal stages (hired/rejected) -->
-          <template v-for="stage in pipelineStages.filter(s => s.terminal)" :key="`terminal-${stage.id}`">
-            <div class="flex w-60 shrink-0 flex-col border-r border-surface-200/80 dark:border-surface-800/60 bg-surface-50/30 dark:bg-surface-950/20">
-              <div class="shrink-0 px-3 py-2.5 border-b border-surface-100 dark:border-surface-800/40">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <span class="size-2 rounded-full" :class="stageColorClass(stage.id, 'dot')" />
-                    <span class="text-xs font-semibold text-surface-500 dark:text-surface-400">{{ stage.label }}</span>
+          <template v-for="(stage, stageIdx) in pipelineStages" :key="stage.id">
+            <!-- Gate stage: narrow connector column -->
+            <template v-if="stage.gate">
+              <div class="flex shrink-0 flex-col items-center border-r border-surface-200/80 dark:border-surface-800/60" style="width: 56px;">
+                <!-- Gate header: diamond connector -->
+                <div class="shrink-0 flex items-center justify-center py-3 w-full bg-surface-50/50 dark:bg-surface-900/50 border-b border-surface-100 dark:border-surface-800/40">
+                  <div
+                    class="flex items-center justify-center size-7 rounded-md border transition-colors"
+                    :class="(statusCounts[stage.id] ?? 0) > 0
+                      ? 'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40'
+                      : 'border-surface-200 bg-surface-50 dark:border-surface-700 dark:bg-surface-800'"
+                    :title="`${stage.label} (${statusCounts[stage.id] ?? 0})`"
+                  >
+                    <CheckCircle2 class="size-3.5" :class="(statusCounts[stage.id] ?? 0) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-surface-400 dark:text-surface-500'" />
                   </div>
-                  <span class="text-[10px] font-semibold text-surface-400 dark:text-surface-500 tabular-nums">
-                    {{ statusCounts[stage.id] ?? 0 }}
+                </div>
+                <!-- Gate count badge below -->
+                <div class="py-2 text-center">
+                  <span
+                    v-if="(statusCounts[stage.id] ?? 0) > 0"
+                    class="text-[10px] font-semibold text-amber-700 dark:text-amber-400 tabular-nums"
+                  >
+                    {{ statusCounts[stage.id] }}
                   </span>
                 </div>
               </div>
-              <div class="flex-1 overflow-y-auto p-2 space-y-2">
+            </template>
+
+            <!-- Active + terminal stages: full columns with drag-and-drop -->
+            <template v-else>
+              <div
+                class="flex shrink-0 flex-col border-r border-surface-200/80 dark:border-surface-800/60"
+                :class="[
+                  stage.terminal ? 'w-60 bg-surface-50/30 dark:bg-surface-950/20' : 'w-72',
+                ]"
+              >
+                <!-- Unified column header (replaces separate stage bar) -->
                 <div
-                  v-if="(applicationsByStatus[stage.id] ?? []).length === 0"
-                  class="flex flex-col items-center justify-center py-8 text-center"
+                  class="shrink-0 px-3 py-2.5 border-b transition-colors"
+                  :class="stage.terminal
+                    ? 'bg-surface-50/80 dark:bg-surface-900/30 border-surface-100 dark:border-surface-800/40'
+                    : 'bg-surface-50/50 dark:bg-surface-900/50 border-surface-100 dark:border-surface-800/40'"
                 >
-                  <UserRound class="size-5 text-surface-300 dark:text-surface-600 mb-1.5" />
-                  <p class="text-[11px] text-surface-400 dark:text-surface-500">No candidates</p>
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span class="size-2 rounded-full shrink-0" :class="stageColorClass(stage.id, 'dot')" />
+                      <span
+                        class="text-xs font-semibold whitespace-nowrap"
+                        :class="stage.terminal ? 'text-surface-500 dark:text-surface-400' : 'text-surface-700 dark:text-surface-300'"
+                      >
+                        {{ stage.label }}
+                      </span>
+                      <!-- Connector arrow after header (non-last, non-terminal) -->
+                      <div
+                        v-if="!stage.terminal && stageIdx < pipelineStages.length - 1"
+                        class="ml-1 w-0 h-0 border-l-[4px] border-l-surface-300 dark:border-l-surface-600 border-y-[3px] border-y-transparent"
+                      />
+                    </div>
+                    <span
+                      class="inline-flex min-w-[20px] items-center justify-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+                      :class="stage.terminal
+                        ? 'bg-surface-100 text-surface-400 dark:bg-surface-800/80 dark:text-surface-500'
+                        : 'bg-surface-100 text-surface-500 dark:bg-surface-800/80 dark:text-surface-400'"
+                    >
+                      {{ statusCounts[stage.id] ?? 0 }}
+                    </span>
+                  </div>
                 </div>
 
-                <PipelineCandidateCard
-                  v-for="app in (applicationsByStatus[stage.id] ?? [])"
-                  :key="app.id"
-                  :id="app.id"
-                  :candidate-first-name="app.candidateFirstName"
-                  :candidate-last-name="app.candidateLastName"
-                  :candidate-email="app.candidateEmail"
-                  :score="app.score"
-                  :created-at="app.createdAt"
-                  :status="app.status"
-                  :selected="selectedApplicationId === app.id"
-                  :has-interview="applicationsWithInterviews.has(app.id)"
-                  @click="selectCandidate(app.id)"
-                />
+                <!-- Draggable card area -->
+                <draggable
+                  :model-value="applicationsByStatus[stage.id] ?? []"
+                  :group="{ name: 'pipeline', pull: true, put: true }"
+                  item-key="id"
+                  :animation="200"
+                  ghost-class="opacity-30"
+                  drag-class="rotate-2 shadow-xl"
+                  class="flex-1 overflow-y-auto p-2 space-y-2 min-h-[60px]"
+                  @start="isDragging = true"
+                  @end="isDragging = false"
+                  @change="(evt: any) => handleDragChange(evt, stage.id)"
+                >
+                  <template #item="{ element: app }">
+                    <PipelineCandidateCard
+                      :id="app.id"
+                      :candidate-first-name="app.candidateFirstName"
+                      :candidate-last-name="app.candidateLastName"
+                      :candidate-email="app.candidateEmail"
+                      :score="app.score"
+                      :created-at="app.createdAt"
+                      :status="app.status"
+                      :selected="selectedApplicationId === app.id"
+                      :has-interview="applicationsWithInterviews.has(app.id)"
+                      @click="selectCandidate(app.id)"
+                    />
+                  </template>
+
+                  <!-- Empty state (shown when no items and not dragging) -->
+                  <template #footer>
+                    <div
+                      v-if="(applicationsByStatus[stage.id] ?? []).length === 0 && !isDragging"
+                      class="flex flex-col items-center justify-center py-8 text-center"
+                    >
+                      <UserRound class="size-5 text-surface-300 dark:text-surface-600 mb-1.5" />
+                      <p class="text-[11px] text-surface-400 dark:text-surface-500">No candidates</p>
+                    </div>
+                  </template>
+                </draggable>
               </div>
-            </div>
+            </template>
           </template>
         </div>
 

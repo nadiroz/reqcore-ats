@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Calendar, ArrowUpCircle,
   Cloud, Server, Sparkles, Search, User,
   ClipboardCheck, MessageCircle, CheckSquare,
-  ArrowRight, ClipboardList, ShieldCheck,
+  ArrowRight, ClipboardList, ShieldCheck, Cog,
 } from 'lucide-vue-next'
 import { timeAgo } from '~/utils/pipeline-helpers'
 
@@ -159,16 +159,39 @@ function handleNotificationClick(n: any) {
 onMounted(() => document.addEventListener('click', onClickOutsideNotifications))
 onUnmounted(() => document.removeEventListener('click', onClickOutsideNotifications))
 
-const jobTabs = computed(() => {
+const jobPipelineTabs = computed(() => {
   if (!activeJobId.value) return []
   const base = `/dashboard/jobs/${activeJobId.value}`
   return [
-    { label: 'Pipeline', to: base, icon: Kanban, exact: true },
+    { label: 'Board', to: base, icon: Kanban, exact: true },
     { label: 'Table', to: `${base}/candidates`, icon: Table2, exact: true },
+  ]
+})
+
+const jobConfigTabs = computed(() => {
+  if (!activeJobId.value) return []
+  const base = `/dashboard/jobs/${activeJobId.value}`
+  return [
     { label: 'Assessment', to: `${base}/assessment`, icon: ClipboardCheck, exact: true },
     { label: 'Application Form', to: `${base}/application-form`, icon: FileText, exact: true },
   ]
 })
+
+const showConfigMenu = ref(false)
+const configMenuRef = useTemplateRef<HTMLElement>('configMenuRoot')
+
+function onClickOutsideConfigMenu(e: MouseEvent) {
+  if (configMenuRef.value && !configMenuRef.value.contains(e.target as Node)) {
+    showConfigMenu.value = false
+  }
+}
+
+const isConfigRouteActive = computed(() =>
+  jobConfigTabs.value.some(tab => isActiveRoute(tab.to, tab.exact)),
+)
+
+// Persistent job sidebar
+const showJobSidebar = ref(false)
 
 // ─────────────────────────────────────────────
 // Main navigation
@@ -198,6 +221,7 @@ watch(() => route.path, () => {
   showMobileMenu.value = false
   showGetStartedMenu.value = false
   showNotificationDropdown.value = false
+  showConfigMenu.value = false
 })
 
 // Close user menu on outside click
@@ -210,10 +234,12 @@ function onClickOutsideUser(e: MouseEvent) {
 onMounted(() => {
   document.addEventListener('click', onClickOutsideUser)
   document.addEventListener('click', onClickOutsideGetStarted)
+  document.addEventListener('click', onClickOutsideConfigMenu)
 })
 onUnmounted(() => {
   document.removeEventListener('click', onClickOutsideUser)
   document.removeEventListener('click', onClickOutsideGetStarted)
+  document.removeEventListener('click', onClickOutsideConfigMenu)
 })
 </script>
 
@@ -547,13 +573,18 @@ onUnmounted(() => {
         class="relative z-10 border-b border-surface-200/60 dark:border-surface-800/60 bg-surface-50/90 dark:bg-surface-950/90 backdrop-blur-lg"
       >
         <div class="flex items-center gap-4 px-4 lg:px-6 h-10">
-          <NuxtLink
-            :to="$localePath('/dashboard/jobs')"
-            class="flex items-center gap-1 text-xs font-medium text-surface-400 dark:text-surface-500 hover:text-surface-600 dark:hover:text-surface-300 transition-colors no-underline shrink-0"
+          <!-- Job switcher toggle -->
+          <button
+            class="flex items-center gap-1.5 text-xs font-medium transition-colors shrink-0 cursor-pointer border-0 bg-transparent rounded-md px-1.5 py-1 hover:bg-surface-100 dark:hover:bg-surface-800"
+            :class="showJobSidebar
+              ? 'text-brand-600 dark:text-brand-400'
+              : 'text-surface-400 dark:text-surface-500 hover:text-surface-600 dark:hover:text-surface-300'"
+            title="Switch jobs"
+            @click="showJobSidebar = !showJobSidebar"
           >
-            <ChevronLeft class="size-3.5" />
-            All Jobs
-          </NuxtLink>
+            <ChevronLeft class="size-3.5 transition-transform duration-150" :class="showJobSidebar ? 'rotate-90' : ''" />
+            Jobs
+          </button>
 
           <div class="w-px h-4 bg-surface-200 dark:bg-surface-700" />
 
@@ -573,7 +604,7 @@ onUnmounted(() => {
 
           <nav class="flex items-center gap-0.5 ml-2">
             <NuxtLink
-              v-for="tab in jobTabs"
+              v-for="tab in jobPipelineTabs"
               :key="tab.to"
               :to="$localePath(tab.to)"
               class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 no-underline"
@@ -584,6 +615,48 @@ onUnmounted(() => {
               <component :is="tab.icon" class="size-3.5" />
               {{ tab.label }}
             </NuxtLink>
+
+            <!-- Job Config gear dropdown -->
+            <div ref="configMenuRoot" class="relative ml-1">
+              <button
+                class="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all duration-200 cursor-pointer border-0 bg-transparent"
+                :class="isConfigRouteActive || showConfigMenu
+                  ? 'bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100 shadow-sm'
+                  : 'text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-white/60 dark:hover:bg-surface-800/60'"
+                title="Job settings"
+                @click="showConfigMenu = !showConfigMenu"
+              >
+                <Cog class="size-3.5" />
+                <ChevronDown class="size-2.5 transition-transform duration-150" :class="showConfigMenu ? 'rotate-180' : ''" />
+              </button>
+
+              <Transition
+                enter-active-class="transition duration-150 ease-out"
+                enter-from-class="opacity-0 scale-95 -translate-y-1"
+                enter-to-class="opacity-100 scale-100 translate-y-0"
+                leave-active-class="transition duration-100 ease-in"
+                leave-from-class="opacity-100 scale-100 translate-y-0"
+                leave-to-class="opacity-0 scale-95 -translate-y-1"
+              >
+                <div
+                  v-if="showConfigMenu"
+                  class="absolute left-0 top-[calc(100%+6px)] w-48 rounded-xl border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-900 shadow-xl py-1.5 z-50"
+                >
+                  <p class="px-3 py-1.5 text-[10px] font-medium text-surface-400 dark:text-surface-500 uppercase tracking-wider">Job Config</p>
+                  <NuxtLink
+                    v-for="tab in jobConfigTabs"
+                    :key="tab.to"
+                    :to="$localePath(tab.to)"
+                    class="flex items-center gap-2.5 px-3 py-2 text-sm text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800/80 transition-colors no-underline"
+                    :class="isActiveRoute(tab.to, tab.exact) ? 'bg-surface-50 dark:bg-surface-800/60 font-medium' : ''"
+                    @click="showConfigMenu = false"
+                  >
+                    <component :is="tab.icon" class="size-3.5 text-surface-400" />
+                    {{ tab.label }}
+                  </NuxtLink>
+                </div>
+              </Transition>
+            </div>
           </nav>
 
           <div class="ml-auto flex items-center gap-2">
@@ -650,6 +723,71 @@ onUnmounted(() => {
       </div>
     </Transition>
   </header>
+
+  <!-- Job sidebar panel (persistent, collapsible) -->
+  <Transition
+    enter-active-class="transition-transform duration-200 ease-out"
+    enter-from-class="-translate-x-full"
+    enter-to-class="translate-x-0"
+    leave-active-class="transition-transform duration-150 ease-in"
+    leave-from-class="translate-x-0"
+    leave-to-class="-translate-x-full"
+  >
+    <aside
+      v-if="showJobSidebar && activeJobId"
+      class="fixed left-0 z-40 w-64 border-r border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 shadow-xl overflow-y-auto"
+      style="top: calc(3.5rem + 2.5rem); height: calc(100vh - 3.5rem - 2.5rem);"
+    >
+      <div class="p-3">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-[10px] font-medium text-surface-400 dark:text-surface-500 uppercase tracking-wider">All Jobs</p>
+          <NuxtLink
+            :to="$localePath('/dashboard/jobs')"
+            class="text-[10px] font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 no-underline"
+          >
+            View all
+          </NuxtLink>
+        </div>
+        <div class="space-y-0.5">
+          <NuxtLink
+            v-for="sJob in sidebarJobs"
+            :key="sJob.id"
+            :to="$localePath(`/dashboard/jobs/${sJob.id}`)"
+            class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-all no-underline"
+            :class="sJob.id === activeJobId
+              ? 'bg-brand-50 dark:bg-brand-950/40 text-brand-700 dark:text-brand-300 font-medium'
+              : 'text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-800/60 hover:text-surface-900 dark:hover:text-surface-100'"
+            @click="showJobSidebar = false"
+          >
+            <Briefcase class="size-3.5 shrink-0" :class="sJob.id === activeJobId ? 'text-brand-500' : 'text-surface-400'" />
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-[13px]">{{ (sJob as any).title }}</p>
+              <p class="text-[10px] capitalize" :class="sJob.id === activeJobId ? 'text-brand-500/70' : 'text-surface-400'">
+                {{ (sJob as any).status }}
+              </p>
+            </div>
+          </NuxtLink>
+          <div v-if="sidebarJobs.length === 0" class="py-4 text-center">
+            <p class="text-xs text-surface-400">No jobs found</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </Transition>
+
+  <!-- Sidebar backdrop (mobile) -->
+  <Transition
+    enter-active-class="transition-opacity duration-200"
+    enter-from-class="opacity-0"
+    leave-active-class="transition-opacity duration-150"
+    leave-to-class="opacity-0"
+  >
+    <div
+      v-if="showJobSidebar && activeJobId"
+      class="fixed inset-0 z-30 bg-black/20 lg:hidden"
+      @click="showJobSidebar = false"
+    />
+  </Transition>
 
   <!-- Feedback modal -->
   <FeedbackModal v-if="showFeedbackModal" @close="showFeedbackModal = false" />

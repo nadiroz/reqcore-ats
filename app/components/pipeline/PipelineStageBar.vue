@@ -61,7 +61,7 @@ const terminalStages = computed(() => props.stages.filter(s => s.terminal))
         <!-- Active stage: full button -->
         <template v-else>
           <!-- Connector between active stages (not before first) -->
-          <div v-if="i > 0 && activeStages[i-1]?.type !== 'gate'" class="flex items-center shrink-0">
+          <div v-if="i > 0 && !activeStages[i-1]?.gate" class="flex items-center shrink-0">
             <div class="w-6 h-px bg-surface-300 dark:bg-surface-600 relative">
               <div class="absolute right-0 top-1/2 -translate-y-1/2 w-0 h-0 border-l-[4px] border-l-surface-300 dark:border-l-surface-600 border-y-[3px] border-y-transparent" />
             </div>
