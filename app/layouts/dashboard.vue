@@ -4,6 +4,8 @@ import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
 
 const { data: session } = await authClient.useSession(useFetch)
 
+const route = useRoute()
+const getRouteBaseName = useRouteBaseName()
 const config = useRuntimeConfig()
 const { activeOrg } = useCurrentOrg()
 const { isUpsellOpen, closeUpsell } = usePreviewReadOnly()
@@ -24,6 +26,13 @@ useKeyboardShortcuts([
     description: 'Toggle command palette',
   },
 ])
+
+// Sidebar push layout: main content shifts right when job sidebar is open
+const showJobSidebar = useState('jobSidebar', () => true)
+const isJobDetailPage = computed(() => {
+  const baseName = getRouteBaseName(route)
+  return typeof baseName === 'string' && baseName.startsWith('dashboard-jobs-id')
+})
 </script>
 
 <template>
@@ -31,7 +40,10 @@ useKeyboardShortcuts([
     <AppTopBar @open-command-palette="commandPaletteOpen = true" />
     <CommandPalette :open="commandPaletteOpen" @close="commandPaletteOpen = false" />
     <PreviewUpsellModal v-if="isUpsellOpen" @close="closeUpsell" />
-    <main class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+    <main
+      class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8 transition-[margin] duration-200"
+      :class="showJobSidebar && isJobDetailPage ? 'lg:ml-64' : ''"
+    >
       <!-- Demo mode banner -->
       <div
         v-if="isDemo"

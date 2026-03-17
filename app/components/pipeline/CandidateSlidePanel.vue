@@ -137,7 +137,7 @@ const showTransitionDropdown = ref(false)
   >
     <div
       v-if="open && application"
-      class="fixed inset-0 z-40 bg-surface-900/20 dark:bg-surface-950/40 lg:hidden"
+      class="fixed inset-0 top-14 z-40 bg-surface-900/20 dark:bg-surface-950/40 lg:hidden"
       @click="emit('close')"
     />
   </Transition>
@@ -153,7 +153,8 @@ const showTransitionDropdown = ref(false)
   >
     <div
       v-if="open && application"
-      class="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-surface-200/80 bg-white shadow-2xl dark:border-surface-800/60 dark:bg-surface-900 lg:relative lg:z-auto lg:shadow-none"
+      class="fixed right-0 top-14 z-50 flex w-full max-w-md flex-col border-l border-surface-200/80 bg-white shadow-2xl dark:border-surface-800/60 dark:bg-surface-900 lg:relative lg:top-auto lg:z-auto lg:h-full lg:shadow-none"
+      style="height: calc(100vh - 3.5rem - 2.5rem);"
     >
       <!-- Summary card (sticky top) -->
       <div class="shrink-0 border-b border-surface-200/80 dark:border-surface-800/60 p-4">

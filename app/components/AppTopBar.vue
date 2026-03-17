@@ -3,13 +3,13 @@ import {
   Briefcase, Bell,
   Kanban, FileText, LogOut, Table2,
   Sun, Moon, MessageSquarePlus, Settings,
-  ChevronDown, Menu, X, Users, ChevronLeft,
+  ChevronDown, Menu, X, Users, PanelLeftClose, PanelLeftOpen,
   LayoutDashboard, Calendar, ArrowUpCircle,
   Cloud, Server, Sparkles, Search, User,
   ClipboardCheck, MessageCircle, CheckSquare,
-  ArrowRight, ClipboardList, ShieldCheck, Cog,
+  ArrowRight, ClipboardList, ShieldCheck, Cog, MapPin,
 } from 'lucide-vue-next'
-import { timeAgo } from '~/utils/pipeline-helpers'
+import { timeAgo, formatJobType } from '~/utils/pipeline-helpers'
 
 const route = useRoute()
 const localePath = useLocalePath()
@@ -132,7 +132,7 @@ watch(showNotificationDropdown, (val: boolean) => {
   if (val) fetchNotifications()
 })
 
-// Notification type → icon + color mapping
+// Notification type -> icon + color mapping
 const notificationTypeConfig: Record<string, { icon: any; colorClass: string }> = {
   application_status_changed: { icon: ArrowRight, colorClass: 'text-brand-500 bg-brand-50 dark:bg-brand-950/40' },
   comment_added: { icon: MessageCircle, colorClass: 'text-info-500 bg-info-50 dark:bg-info-950/40' },
@@ -190,8 +190,8 @@ const isConfigRouteActive = computed(() =>
   jobConfigTabs.value.some(tab => isActiveRoute(tab.to, tab.exact)),
 )
 
-// Persistent job sidebar
-const showJobSidebar = ref(false)
+// Persistent job sidebar (shared via useState, open by default)
+const showJobSidebar = useState('jobSidebar', () => true)
 
 // ─────────────────────────────────────────────
 // Main navigation
@@ -250,7 +250,7 @@ onUnmounted(() => {
       <div class="flex h-14 items-center justify-between px-4 lg:px-6">
         <!-- Left: Logo + Nav -->
         <div class="flex items-center gap-1 lg:gap-2">
-          <!-- Logo — links to marketing site (reqcore.com), not app root -->
+          <!-- Logo -->
           <a
             :href="useRuntimeConfig().public.marketingUrl"
             class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg no-underline hover:bg-surface-100/60 dark:hover:bg-surface-800/60 transition-colors mr-1 lg:mr-4"
@@ -562,7 +562,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Job context sub-navigation bar -->
+    <!-- Job context sub-navigation bar (3-zone layout) -->
     <Transition
       enter-active-class="transition duration-200 ease-out"
       enter-from-class="opacity-0 -translate-y-1"
@@ -570,27 +570,29 @@ onUnmounted(() => {
     >
       <div
         v-if="activeJobId"
-        class="relative z-10 border-b border-surface-200/60 dark:border-surface-800/60 bg-surface-50/90 dark:bg-surface-950/90 backdrop-blur-lg"
+        class="relative z-10 border-b border-surface-200/60 dark:border-surface-800/60 bg-surface-50/90 dark:bg-surface-950/90 backdrop-blur-lg transition-[padding] duration-200"
+        :class="showJobSidebar ? 'lg:pl-64' : ''"
       >
-        <div class="flex items-center gap-4 px-4 lg:px-6 h-10">
-          <!-- Job switcher toggle -->
-          <button
-            class="flex items-center gap-1.5 text-xs font-medium transition-colors shrink-0 cursor-pointer border-0 bg-transparent rounded-md px-1.5 py-1 hover:bg-surface-100 dark:hover:bg-surface-800"
-            :class="showJobSidebar
-              ? 'text-brand-600 dark:text-brand-400'
-              : 'text-surface-400 dark:text-surface-500 hover:text-surface-600 dark:hover:text-surface-300'"
-            title="Switch jobs"
-            @click="showJobSidebar = !showJobSidebar"
-          >
-            <ChevronLeft class="size-3.5 transition-transform duration-150" :class="showJobSidebar ? 'rotate-90' : ''" />
-            Jobs
-          </button>
+        <div class="flex items-center h-10 px-4 lg:px-6">
+          <!-- LEFT ZONE: Sidebar toggle + job title + status badge -->
+          <div class="flex items-center gap-2 shrink-0 min-w-0 mr-4">
+            <!-- Sidebar toggle -->
+            <button
+              class="flex items-center justify-center rounded-md p-1 transition-colors shrink-0 cursor-pointer border-0 bg-transparent hover:bg-surface-100 dark:hover:bg-surface-800"
+              :class="showJobSidebar
+                ? 'text-brand-600 dark:text-brand-400'
+                : 'text-surface-400 dark:text-surface-500 hover:text-surface-600 dark:hover:text-surface-300'"
+              :title="showJobSidebar ? 'Collapse sidebar' : 'Show jobs'"
+              @click="showJobSidebar = !showJobSidebar"
+            >
+              <PanelLeftClose v-if="showJobSidebar" class="size-4" />
+              <PanelLeftOpen v-else class="size-4" />
+            </button>
 
-          <div class="w-px h-4 bg-surface-200 dark:bg-surface-700" />
+            <div class="w-px h-4 bg-surface-200 dark:bg-surface-700" />
 
-          <div class="flex items-center gap-2 shrink-0 min-w-0">
             <Briefcase class="size-3.5 text-brand-500 shrink-0" />
-            <span class="text-sm font-semibold text-surface-900 dark:text-surface-100 truncate max-w-48">
+            <span class="text-sm font-semibold text-surface-900 dark:text-surface-100 truncate max-w-[220px] lg:max-w-xs">
               {{ activeJobTitle }}
             </span>
             <span
@@ -602,64 +604,68 @@ onUnmounted(() => {
             </span>
           </div>
 
-          <nav class="flex items-center gap-0.5 ml-2">
-            <NuxtLink
-              v-for="tab in jobPipelineTabs"
-              :key="tab.to"
-              :to="$localePath(tab.to)"
-              class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 no-underline"
-              :class="isActiveRoute(tab.to, tab.exact)
-                ? 'bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100 shadow-sm'
-                : 'text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-white/60 dark:hover:bg-surface-800/60'"
-            >
-              <component :is="tab.icon" class="size-3.5" />
-              {{ tab.label }}
-            </NuxtLink>
-
-            <!-- Job Config gear dropdown -->
-            <div ref="configMenuRoot" class="relative ml-1">
-              <button
-                class="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all duration-200 cursor-pointer border-0 bg-transparent"
-                :class="isConfigRouteActive || showConfigMenu
-                  ? 'bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100 shadow-sm'
-                  : 'text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-white/60 dark:hover:bg-surface-800/60'"
-                title="Job settings"
-                @click="showConfigMenu = !showConfigMenu"
+          <!-- CENTER ZONE: View tabs + config gear (centered) -->
+          <div class="flex items-center justify-center flex-1">
+            <nav class="flex items-center rounded-lg bg-surface-100/70 dark:bg-surface-800/40 p-0.5">
+              <NuxtLink
+                v-for="tab in jobPipelineTabs"
+                :key="tab.to"
+                :to="$localePath(tab.to)"
+                class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 no-underline"
+                :class="isActiveRoute(tab.to, tab.exact)
+                  ? 'bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 shadow-sm'
+                  : 'text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200'"
               >
-                <Cog class="size-3.5" />
-                <ChevronDown class="size-2.5 transition-transform duration-150" :class="showConfigMenu ? 'rotate-180' : ''" />
-              </button>
+                <component :is="tab.icon" class="size-3.5" />
+                {{ tab.label }}
+              </NuxtLink>
 
-              <Transition
-                enter-active-class="transition duration-150 ease-out"
-                enter-from-class="opacity-0 scale-95 -translate-y-1"
-                enter-to-class="opacity-100 scale-100 translate-y-0"
-                leave-active-class="transition duration-100 ease-in"
-                leave-from-class="opacity-100 scale-100 translate-y-0"
-                leave-to-class="opacity-0 scale-95 -translate-y-1"
-              >
-                <div
-                  v-if="showConfigMenu"
-                  class="absolute left-0 top-[calc(100%+6px)] w-48 rounded-xl border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-900 shadow-xl py-1.5 z-50"
+              <!-- Job Config gear dropdown (inside segmented control) -->
+              <div ref="configMenuRoot" class="relative">
+                <button
+                  class="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all duration-200 cursor-pointer border-0 bg-transparent"
+                  :class="isConfigRouteActive || showConfigMenu
+                    ? 'bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 shadow-sm'
+                    : 'text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200'"
+                  title="Job settings"
+                  @click="showConfigMenu = !showConfigMenu"
                 >
-                  <p class="px-3 py-1.5 text-[10px] font-medium text-surface-400 dark:text-surface-500 uppercase tracking-wider">Job Config</p>
-                  <NuxtLink
-                    v-for="tab in jobConfigTabs"
-                    :key="tab.to"
-                    :to="$localePath(tab.to)"
-                    class="flex items-center gap-2.5 px-3 py-2 text-sm text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800/80 transition-colors no-underline"
-                    :class="isActiveRoute(tab.to, tab.exact) ? 'bg-surface-50 dark:bg-surface-800/60 font-medium' : ''"
-                    @click="showConfigMenu = false"
-                  >
-                    <component :is="tab.icon" class="size-3.5 text-surface-400" />
-                    {{ tab.label }}
-                  </NuxtLink>
-                </div>
-              </Transition>
-            </div>
-          </nav>
+                  <Cog class="size-3.5" />
+                  <ChevronDown class="size-2.5 transition-transform duration-150" :class="showConfigMenu ? 'rotate-180' : ''" />
+                </button>
 
-          <div class="ml-auto flex items-center gap-2">
+                <Transition
+                  enter-active-class="transition duration-150 ease-out"
+                  enter-from-class="opacity-0 scale-95 -translate-y-1"
+                  enter-to-class="opacity-100 scale-100 translate-y-0"
+                  leave-active-class="transition duration-100 ease-in"
+                  leave-from-class="opacity-100 scale-100 translate-y-0"
+                  leave-to-class="opacity-0 scale-95 -translate-y-1"
+                >
+                  <div
+                    v-if="showConfigMenu"
+                    class="absolute left-0 top-[calc(100%+6px)] w-48 rounded-xl border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-900 shadow-xl py-1.5 z-50"
+                  >
+                    <p class="px-3 py-1.5 text-[10px] font-medium text-surface-400 dark:text-surface-500 uppercase tracking-wider">Job Config</p>
+                    <NuxtLink
+                      v-for="tab in jobConfigTabs"
+                      :key="tab.to"
+                      :to="$localePath(tab.to)"
+                      class="flex items-center gap-2.5 px-3 py-2 text-sm text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800/80 transition-colors no-underline"
+                      :class="isActiveRoute(tab.to, tab.exact) ? 'bg-surface-50 dark:bg-surface-800/60 font-medium' : ''"
+                      @click="showConfigMenu = false"
+                    >
+                      <component :is="tab.icon" class="size-3.5 text-surface-400" />
+                      {{ tab.label }}
+                    </NuxtLink>
+                  </div>
+                </Transition>
+              </div>
+            </nav>
+          </div>
+
+          <!-- RIGHT ZONE: Actions (teleport target from pipeline page) -->
+          <div class="flex items-center gap-2 shrink-0 ml-4">
             <div id="job-sub-nav-actions" />
           </div>
         </div>
@@ -724,7 +730,7 @@ onUnmounted(() => {
     </Transition>
   </header>
 
-  <!-- Job sidebar panel (persistent, collapsible) -->
+  <!-- Job sidebar panel (persistent push layout) -->
   <Transition
     enter-active-class="transition-transform duration-200 ease-out"
     enter-from-class="-translate-x-full"
@@ -735,47 +741,60 @@ onUnmounted(() => {
   >
     <aside
       v-if="showJobSidebar && activeJobId"
-      class="fixed left-0 z-40 w-64 border-r border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 shadow-xl overflow-y-auto"
-      style="top: calc(3.5rem + 2.5rem); height: calc(100vh - 3.5rem - 2.5rem);"
+      class="fixed left-0 z-40 w-64 border-r border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 overflow-y-auto"
+      style="top: 3.5rem; height: calc(100vh - 3.5rem);"
     >
-      <div class="p-3">
-        <div class="flex items-center justify-between mb-3">
-          <p class="text-[10px] font-medium text-surface-400 dark:text-surface-500 uppercase tracking-wider">All Jobs</p>
-          <NuxtLink
-            :to="$localePath('/dashboard/jobs')"
-            class="text-[10px] font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 no-underline"
-          >
-            View all
-          </NuxtLink>
-        </div>
-        <div class="space-y-0.5">
-          <NuxtLink
-            v-for="sJob in sidebarJobs"
-            :key="sJob.id"
-            :to="$localePath(`/dashboard/jobs/${sJob.id}`)"
-            class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-all no-underline"
-            :class="sJob.id === activeJobId
-              ? 'bg-brand-50 dark:bg-brand-950/40 text-brand-700 dark:text-brand-300 font-medium'
-              : 'text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-800/60 hover:text-surface-900 dark:hover:text-surface-100'"
-            @click="showJobSidebar = false"
-          >
-            <Briefcase class="size-3.5 shrink-0" :class="sJob.id === activeJobId ? 'text-brand-500' : 'text-surface-400'" />
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-[13px]">{{ (sJob as any).title }}</p>
-              <p class="text-[10px] capitalize" :class="sJob.id === activeJobId ? 'text-brand-500/70' : 'text-surface-400'">
+      <!-- Sidebar header -->
+      <div class="flex items-center justify-between px-3 pt-3 pb-2">
+        <p class="text-[10px] font-medium text-surface-400 dark:text-surface-500 uppercase tracking-wider">Jobs</p>
+        <NuxtLink
+          :to="$localePath('/dashboard/jobs')"
+          class="text-[10px] font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 no-underline"
+        >
+          View all
+        </NuxtLink>
+      </div>
+
+      <!-- Job list with rich metadata -->
+      <div class="px-2 pb-3 space-y-0.5">
+        <NuxtLink
+          v-for="sJob in sidebarJobs"
+          :key="sJob.id"
+          :to="$localePath(`/dashboard/jobs/${sJob.id}`)"
+          class="flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-all no-underline"
+          :class="sJob.id === activeJobId
+            ? 'bg-brand-50 dark:bg-brand-950/40 text-brand-700 dark:text-brand-300'
+            : 'text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-800/60 hover:text-surface-900 dark:hover:text-surface-100'"
+        >
+          <Briefcase class="size-3.5 shrink-0 mt-0.5" :class="sJob.id === activeJobId ? 'text-brand-500' : 'text-surface-400'" />
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-[13px] font-medium leading-tight">{{ (sJob as any).title }}</p>
+            <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0 mt-1">
+              <span
+                class="inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold capitalize ring-1 ring-inset"
+                :class="jobStatusBadgeClasses[(sJob as any).status] ?? 'bg-surface-50 text-surface-600 ring-surface-200'"
+              >
                 {{ (sJob as any).status }}
-              </p>
+              </span>
+              <span v-if="(sJob as any).type" class="text-[10px] text-surface-400 dark:text-surface-500">
+                {{ formatJobType((sJob as any).type) }}
+              </span>
             </div>
-          </NuxtLink>
-          <div v-if="sidebarJobs.length === 0" class="py-4 text-center">
-            <p class="text-xs text-surface-400">No jobs found</p>
+            <div v-if="(sJob as any).location" class="flex items-center gap-1 mt-0.5">
+              <MapPin class="size-2.5 text-surface-400 shrink-0" />
+              <span class="text-[10px] text-surface-400 dark:text-surface-500 truncate">{{ (sJob as any).location }}</span>
+            </div>
           </div>
+        </NuxtLink>
+        <div v-if="sidebarJobs.length === 0" class="py-6 text-center">
+          <Briefcase class="size-5 mx-auto text-surface-300 dark:text-surface-600 mb-1.5" />
+          <p class="text-xs text-surface-400">No jobs found</p>
         </div>
       </div>
     </aside>
   </Transition>
 
-  <!-- Sidebar backdrop (mobile) -->
+  <!-- Sidebar backdrop (mobile only) -->
   <Transition
     enter-active-class="transition-opacity duration-200"
     enter-from-class="opacity-0"

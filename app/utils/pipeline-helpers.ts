@@ -73,3 +73,14 @@ export function formatInterviewDateTimeFull(dateStr: string): string {
 export function isInterviewUpcoming(dateStr: string): boolean {
   return new Date(dateStr) > new Date()
 }
+
+export const JOB_TYPE_LABELS: Record<string, string> = {
+  full_time: 'Full-time',
+  part_time: 'Part-time',
+  contract: 'Contract',
+  internship: 'Internship',
+}
+
+export function formatJobType(type: string): string {
+  return JOB_TYPE_LABELS[type] ?? type
+}
