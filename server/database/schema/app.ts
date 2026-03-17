@@ -8,10 +8,12 @@ import {
   pgEnum,
   index,
   uniqueIndex,
+  real,
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 import { organization, user } from './auth'
 import type { PipelineConfig } from '~~/shared/status-transitions'
+import type { AssessmentTemplateConfig, AssessmentScores } from '~~/shared/assessment-types'
 
 // ─────────────────────────────────────────────
 // Enums
@@ -456,6 +458,74 @@ export const stageApprovalRequest = pgTable('stage_approval_request', {
 ]))
 
 // ─────────────────────────────────────────────
+// Assessment Templates + Sessions
+// ─────────────────────────────────────────────
+
+/**
+ * Assessment template for a job. Defines rounds with weighted tasks
+ * and pass/fail criteria. One template per job.
+ */
+export const jobAssessmentTemplate = pgTable('job_assessment_template', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  organizationId: text('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' }),
+  jobId: text('job_id').notNull().references(() => job.id, { onDelete: 'cascade' }),
+  config: jsonb('config').$type<AssessmentTemplateConfig>().notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ([
+  uniqueIndex('job_assessment_template_job_idx').on(t.organizationId, t.jobId),
+]))
+
+/**
+ * Per-application assessment session. Tracks scoring progress through
+ * rounds, behavioral notes, weighted scores, and final decision.
+ */
+export const applicationAssessment = pgTable('application_assessment', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  organizationId: text('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' }),
+  applicationId: text('application_id').notNull().references(() => application.id, { onDelete: 'cascade' }),
+  templateId: text('template_id').references(() => jobAssessmentTemplate.id, { onDelete: 'set null' }),
+  status: text('status').notNull().default('not_started'),
+  currentRound: integer('current_round').notNull().default(1),
+  round1DueDate: timestamp('round1_due_date'),
+  round2DueDate: timestamp('round2_due_date'),
+  scores: jsonb('scores').$type<AssessmentScores>(),
+  behavioralNotes: text('behavioral_notes'),
+  overallScore: real('overall_score'),
+  decision: text('decision'),
+  trainabilityNotes: text('trainability_notes'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ([
+  index('application_assessment_app_idx').on(t.organizationId, t.applicationId),
+]))
+
+// ─────────────────────────────────────────────
+// Application Tasks
+// ─────────────────────────────────────────────
+
+/**
+ * Internal tasks attached to an application (e.g. "Review resume",
+ * "Schedule phone screen"). Created by team members, tracked per application.
+ */
+export const applicationTask = pgTable('application_task', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  organizationId: text('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' }),
+  applicationId: text('application_id').notNull().references(() => application.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  description: text('description'),
+  taskType: text('task_type').notNull().default('internal'),
+  dueDate: timestamp('due_date'),
+  completedAt: timestamp('completed_at'),
+  completedById: text('completed_by_id').references(() => user.id, { onDelete: 'set null' }),
+  createdById: text('created_by_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ([
+  index('app_task_app_idx').on(t.organizationId, t.applicationId),
+]))
+
+// ─────────────────────────────────────────────
 // Relations
 // ─────────────────────────────────────────────
 
@@ -463,6 +533,7 @@ export const jobRelations = relations(job, ({ one, many }) => ({
   organization: one(organization, { fields: [job.organizationId], references: [organization.id] }),
   applications: many(application),
   questions: many(jobQuestion),
+  assessmentTemplate: one(jobAssessmentTemplate),
 }))
 
 export const candidateRelations = relations(candidate, ({ one, many }) => ({
@@ -484,6 +555,8 @@ export const applicationRelations = relations(application, ({ one, many }) => ({
   responses: many(questionResponse),
   interviews: many(interview),
   approvalRequests: many(stageApprovalRequest),
+  assessment: one(applicationAssessment),
+  tasks: many(applicationTask),
 }))
 
 export const stageApprovalRequestRelations = relations(stageApprovalRequest, ({ one }) => ({
@@ -543,4 +616,22 @@ export const emailTemplateRelations = relations(emailTemplate, ({ one }) => ({
 
 export const calendarIntegrationRelations = relations(calendarIntegration, ({ one }) => ({
   user: one(user, { fields: [calendarIntegration.userId], references: [user.id] }),
+}))
+
+export const jobAssessmentTemplateRelations = relations(jobAssessmentTemplate, ({ one }) => ({
+  organization: one(organization, { fields: [jobAssessmentTemplate.organizationId], references: [organization.id] }),
+  job: one(job, { fields: [jobAssessmentTemplate.jobId], references: [job.id] }),
+}))
+
+export const applicationAssessmentRelations = relations(applicationAssessment, ({ one }) => ({
+  organization: one(organization, { fields: [applicationAssessment.organizationId], references: [organization.id] }),
+  application: one(application, { fields: [applicationAssessment.applicationId], references: [application.id] }),
+  template: one(jobAssessmentTemplate, { fields: [applicationAssessment.templateId], references: [jobAssessmentTemplate.id] }),
+}))
+
+export const applicationTaskRelations = relations(applicationTask, ({ one }) => ({
+  organization: one(organization, { fields: [applicationTask.organizationId], references: [organization.id] }),
+  application: one(application, { fields: [applicationTask.applicationId], references: [application.id] }),
+  completedBy: one(user, { fields: [applicationTask.completedById], references: [user.id] }),
+  createdBy: one(user, { fields: [applicationTask.createdById], references: [user.id] }),
 }))
