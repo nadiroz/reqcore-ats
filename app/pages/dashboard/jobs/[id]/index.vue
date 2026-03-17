@@ -218,8 +218,9 @@ watch(focusStatus, () => {
 
 const currentSummary = computed(() => filteredApplications.value[currentIndex.value] ?? null)
 
-// Detail tab for center panel (used for scroll-to-section navigation)
-const detailTab = ref<'overview' | 'interviews' | 'documents' | 'responses'>('overview')
+// Detail tab for center panel
+// 'overview' | 'interviews' | 'documents' use scroll-to-section; 'activity' is a proper tab switch
+const detailTab = ref<'overview' | 'interviews' | 'documents' | 'activity'>('overview')
 
 // Section refs for scroll-to navigation
 const overviewRef = ref<HTMLElement | null>(null)
@@ -228,13 +229,13 @@ const documentsRef = ref<HTMLElement | null>(null)
 const responsesRef = ref<HTMLElement | null>(null)
 const detailScrollContainer = ref<HTMLElement | null>(null)
 
-function scrollToSection(section: 'overview' | 'interviews' | 'documents' | 'responses') {
+function scrollToSection(section: 'overview' | 'interviews' | 'documents' | 'activity') {
   detailTab.value = section
+  if (section === 'activity') return // activity is a proper tab, not scroll-to-section
   const refs: Record<string, ReturnType<typeof ref<HTMLElement | null>>> = {
     overview: overviewRef,
     interviews: interviewsRef,
     documents: documentsRef,
-    responses: responsesRef,
   }
   const el = refs[section]?.value
   if (el) {
@@ -243,13 +244,13 @@ function scrollToSection(section: 'overview' | 'interviews' | 'documents' | 'res
 }
 
 function handleDetailScroll() {
+  if (detailTab.value === 'activity') return // don't update active tab while in activity view
   const container = detailScrollContainer.value
   if (!container) return
   const scrollTop = container.scrollTop
   const offset = 120 // offset to trigger slightly before section top
 
   const sections = [
-    { id: 'responses' as const, el: responsesRef.value },
     { id: 'documents' as const, el: documentsRef.value },
     { id: 'interviews' as const, el: interviewsRef.value },
     { id: 'overview' as const, el: overviewRef.value },
@@ -262,6 +263,93 @@ function handleDetailScroll() {
     }
   }
   detailTab.value = 'overview'
+}
+
+// ─────────────────────────────────────────────
+// Activity feed
+// ─────────────────────────────────────────────
+
+const activitySubTab = ref<'all' | 'comments' | 'tasks' | 'history'>('all')
+
+const { data: authSession } = await authClient.useSession(useFetch)
+const currentUserId = computed(() => authSession.value?.user?.id)
+
+const { comments, total: commentsTotal, createComment, updateComment, deleteComment } = useComments({
+  targetType: 'application',
+  targetId: computed(() => currentApplicationId.value || undefined),
+})
+
+const { data: activityLogData } = useFetch('/api/activity-log', {
+  key: computed(() => `activity-log-${currentApplicationId.value}`),
+  query: computed(() => ({
+    resourceType: 'application',
+    resourceId: currentApplicationId.value,
+    limit: 50,
+  })),
+  headers: useRequestHeaders(['cookie']),
+  immediate: computed(() => !!currentApplicationId.value),
+})
+const activityItems = computed(() => activityLogData.value?.data ?? [])
+
+// Task stub — fully wired in Wave G when useApplicationTasks + DB table are created
+const openTasksCount = computed(() => 0)
+
+type FeedItem =
+  | { kind: 'comment'; ts: string; data: typeof comments.value[0] }
+  | { kind: 'history'; ts: string; data: typeof activityItems.value[0] }
+
+const feedAll = computed((): FeedItem[] => {
+  const items: FeedItem[] = [
+    ...comments.value.map(c => ({ kind: 'comment' as const, ts: c.createdAt, data: c })),
+    ...activityItems.value.map(a => ({ kind: 'history' as const, ts: String(a.createdAt), data: a })),
+  ]
+  return items.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+})
+
+const feedFiltered = computed(() => {
+  const sub = activitySubTab.value
+  if (sub === 'comments') return feedAll.value.filter(i => i.kind === 'comment')
+  if (sub === 'history') return feedAll.value.filter(i => i.kind === 'history')
+  return feedAll.value
+})
+
+const commentBody = ref('')
+const commentInputMode = ref<'comment' | 'task'>('comment')
+const isSubmittingComment = ref(false)
+const editingCommentId = ref<string | null>(null)
+const editingCommentBody = ref('')
+
+async function submitActivityInput() {
+  const body = commentBody.value.trim()
+  if (!body) return
+  isSubmittingComment.value = true
+  try {
+    await createComment(body)
+    commentBody.value = ''
+  } finally {
+    isSubmittingComment.value = false
+  }
+}
+
+async function saveEditComment(id: string) {
+  const body = editingCommentBody.value.trim()
+  if (!body) return
+  await updateComment(id, body)
+  editingCommentId.value = null
+  editingCommentBody.value = ''
+}
+
+function formatActivityAction(action: string, metadata: Record<string, string> | null): string {
+  if (action === 'status_changed' && metadata?.from && metadata?.to) {
+    return `Moved ${stageLabel(metadata.from)} → ${stageLabel(metadata.to)}`
+  }
+  const labels: Record<string, string> = {
+    updated: 'Application updated',
+    created: 'Application created',
+    document_uploaded: 'Document uploaded',
+    interview_scheduled: 'Interview scheduled',
+  }
+  return labels[action] ?? action.replace(/_/g, ' ')
 }
 
 type SwipeDocument = {
@@ -1682,20 +1770,138 @@ function closeDocPreview() {
                   </span>
                 </button>
                 <button
-                  v-if="resolvedCurrentApplication?.responses?.length"
-                  class="cursor-pointer px-3.5 py-2.5 text-sm font-medium transition-all duration-150 border-b-2 -mb-px"
-                  :class="detailTab === 'responses'
+                  class="cursor-pointer px-3.5 py-2.5 text-sm font-medium transition-all duration-150 border-b-2 -mb-px inline-flex items-center gap-1.5"
+                  :class="detailTab === 'activity'
                     ? 'border-brand-600 text-brand-700 dark:border-brand-400 dark:text-brand-300'
                     : 'border-transparent text-surface-500 hover:text-surface-700 hover:border-surface-300 dark:text-surface-400 dark:hover:text-surface-300 dark:hover:border-surface-600'"
-                  @click="scrollToSection('responses')"
+                  @click="scrollToSection('activity')"
                 >
-                  Responses ({{ resolvedCurrentApplication.responses.length }})
+                  Activity
+                  <span
+                    v-if="commentsTotal + openTasksCount > 0"
+                    class="inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0.5 text-[10px] font-semibold"
+                    :class="detailTab === 'activity'
+                      ? 'bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-300'
+                      : 'bg-surface-100 text-surface-500 dark:bg-surface-800/80 dark:text-surface-400'"
+                  >
+                    {{ commentsTotal + openTasksCount }}
+                  </span>
                 </button>
               </div>
             </div>
 
-            <!-- Detail content -->
-            <div class="bg-surface-50/80 dark:bg-surface-950/80 px-6 py-8">
+            <!-- Activity feed (shown when activity tab is active) -->
+            <div v-if="detailTab === 'activity'">
+              <!-- Unified input -->
+              <div class="border-b border-surface-200/80 bg-white px-6 py-3 dark:border-surface-800/60 dark:bg-surface-900">
+                <div class="mx-auto max-w-4xl">
+                  <div class="flex items-start gap-2.5">
+                    <textarea
+                      v-model="commentBody"
+                      rows="1"
+                      placeholder="Write a comment…"
+                      class="flex-1 resize-none rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-sm text-surface-800 placeholder:text-surface-400 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-400/30 dark:border-surface-700 dark:bg-surface-800/60 dark:text-surface-200 dark:placeholder:text-surface-500 dark:focus:border-brand-500 dark:focus:bg-surface-800 dark:focus:ring-brand-500/20"
+                      @keydown.enter.exact.prevent="submitActivityInput"
+                    />
+                    <button
+                      :disabled="!commentBody.trim() || isSubmittingComment"
+                      class="flex cursor-pointer items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      @click="submitActivityInput"
+                    >
+                      <MessageSquare class="size-3.5" />
+                      Comment
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sub-tabs -->
+              <div class="border-b border-surface-100 bg-white px-6 dark:border-surface-800/60 dark:bg-surface-900">
+                <div class="mx-auto max-w-4xl flex gap-0.5">
+                  <button
+                    v-for="sub in ['all', 'comments', 'tasks', 'history'] as const"
+                    :key="sub"
+                    class="cursor-pointer px-3 py-2 text-xs font-medium capitalize transition-all border-b-2"
+                    :class="activitySubTab === sub
+                      ? 'border-brand-500 text-brand-700 dark:border-brand-400 dark:text-brand-300'
+                      : 'border-transparent text-surface-400 hover:text-surface-600 dark:text-surface-500 dark:hover:text-surface-300'"
+                    @click="activitySubTab = sub"
+                  >
+                    {{ sub }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Feed items -->
+              <div class="px-6 py-4">
+                <div class="mx-auto max-w-4xl space-y-3">
+                  <!-- Empty state -->
+                  <div v-if="feedFiltered.length === 0" class="py-12 text-center">
+                    <div class="flex size-10 items-center justify-center rounded-xl bg-surface-100 dark:bg-surface-800/60 mx-auto mb-2.5">
+                      <MessageSquare class="size-4.5 text-surface-400 dark:text-surface-500" />
+                    </div>
+                    <p class="text-sm text-surface-500 dark:text-surface-400">No activity yet.</p>
+                  </div>
+
+                  <!-- Feed items -->
+                  <div v-for="item in feedFiltered" :key="`feed-${item.kind}-${item.data.id}`">
+
+                    <!-- Comment item -->
+                    <div v-if="item.kind === 'comment'" class="flex gap-3">
+                      <div class="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-700 dark:bg-brand-950 dark:text-brand-300">
+                        {{ getCandidateInitials(item.data.authorName?.split(' ')[0], item.data.authorName?.split(' ')[1]) }}
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div v-if="editingCommentId === item.data.id" class="flex gap-2">
+                          <textarea
+                            v-model="editingCommentBody"
+                            rows="2"
+                            class="flex-1 resize-none rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400/30 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-200"
+                            @keydown.enter.exact.prevent="saveEditComment(item.data.id)"
+                            @keydown.escape="editingCommentId = null"
+                          />
+                          <div class="flex flex-col gap-1">
+                            <button class="cursor-pointer rounded-md bg-brand-600 px-2 py-1 text-xs font-medium text-white hover:bg-brand-700" @click="saveEditComment(item.data.id)">Save</button>
+                            <button class="cursor-pointer rounded-md border border-surface-200 px-2 py-1 text-xs text-surface-500 hover:bg-surface-50 dark:border-surface-700 dark:text-surface-400 dark:hover:bg-surface-800" @click="editingCommentId = null">Cancel</button>
+                          </div>
+                        </div>
+                        <div v-else>
+                          <div class="flex items-center gap-2 mb-0.5">
+                            <span class="text-xs font-semibold text-surface-800 dark:text-surface-200">{{ item.data.authorName }}</span>
+                            <span class="text-[11px] text-surface-400 dark:text-surface-500">{{ timeAgo(item.data.createdAt) }}</span>
+                          </div>
+                          <p class="text-sm leading-relaxed text-surface-700 dark:text-surface-300 whitespace-pre-wrap">{{ item.data.body }}</p>
+                          <div v-if="item.data.authorId === currentUserId" class="mt-1 flex gap-2">
+                            <button
+                              class="cursor-pointer text-[11px] text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 transition-colors"
+                              @click="editingCommentId = item.data.id; editingCommentBody = item.data.body"
+                            >Edit</button>
+                            <button
+                              class="cursor-pointer text-[11px] text-danger-400 hover:text-danger-600 dark:hover:text-danger-300 transition-colors"
+                              @click="deleteComment(item.data.id)"
+                            >Delete</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- History item -->
+                    <div v-else-if="item.kind === 'history'" class="flex items-start gap-3">
+                      <div class="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface-100 dark:bg-surface-800">
+                        <ArrowUpDown class="size-3.5 text-surface-400 dark:text-surface-500" />
+                      </div>
+                      <div class="flex-1 min-w-0 pt-0.5">
+                        <span class="text-xs text-surface-600 dark:text-surface-400">{{ formatActivityAction(item.data.action, item.data.metadata as any) }}</span>
+                        <span class="ml-2 text-[11px] text-surface-400 dark:text-surface-500">{{ timeAgo(String(item.data.createdAt)) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Detail content (non-activity tabs) -->
+            <div v-else class="bg-surface-50/80 dark:bg-surface-950/80 px-6 py-8">
               <div v-if="detailFetchStatus === 'pending' && !resolvedCurrentApplication" class="flex flex-col items-center justify-center py-12">
                 <div class="size-8 rounded-full border-2 border-brand-200 border-t-brand-600 dark:border-brand-800 dark:border-t-brand-400 animate-spin" />
                 <p class="mt-3 text-sm text-surface-400">Loading details…</p>
