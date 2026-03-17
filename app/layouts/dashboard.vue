@@ -12,11 +12,24 @@ const isDemo = computed(() => {
   const slug = config.public.demoOrgSlug
   return slug && activeOrg.value?.slug === slug
 })
+
+// Command palette
+const commandPaletteOpen = ref(false)
+
+useKeyboardShortcuts([
+  {
+    key: 'k',
+    meta: true,
+    handler: () => { commandPaletteOpen.value = !commandPaletteOpen.value },
+    description: 'Toggle command palette',
+  },
+])
 </script>
 
 <template>
   <div class="flex min-h-screen flex-col bg-surface-50 dark:bg-surface-950">
-    <AppTopBar />
+    <AppTopBar @open-command-palette="commandPaletteOpen = true" />
+    <CommandPalette :open="commandPaletteOpen" @close="commandPaletteOpen = false" />
     <PreviewUpsellModal v-if="isUpsellOpen" @close="closeUpsell" />
     <main class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <!-- Demo mode banner -->

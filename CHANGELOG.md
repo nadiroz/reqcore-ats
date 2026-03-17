@@ -10,8 +10,59 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Categories: **Add
 
 ### Added
 
-* **blog:** add Cluster 8 career page articles — pillar (career-page-that-converts) and two supporting articles (career-page-seo, google-for-jobs-structured-data)
-* **blog:** add incoming links to career page content from how-applicant-tracking-systems-work, open-source-applicant-tracking-system, and self-hosted-vs-cloud-ats
+- **blog:** add Cluster 8 career page articles — pillar (career-page-that-converts) and two supporting articles (career-page-seo, google-for-jobs-structured-data)
+- **blog:** add incoming links to career page content from how-applicant-tracking-systems-work, open-source-applicant-tracking-system, and self-hosted-vs-cloud-ats
+
+---
+
+## Pipeline, Assessments, and Hiring Workflow (2026-03-10 to 2026-03-17)
+
+### Added
+
+- **pipeline:** Dynamic pipeline stages with org-level configuration (custom stages, ordering, terminal stages)
+- **pipeline:** Stage color system using index-based palette via `usePipelineConfig()` composable (`stageColorClass`, `stageLabel`)
+- **pipeline:** Gate stages and approval workflow with `stage_approval_request` table
+- **pipeline:** Transition rules (configurable per stage pair, `requiresApproval` flag)
+- **pipeline:** Intentional transitions with confirmation modal (note, due date) and 8-second undo toast
+- **pipeline:** Approval bell in AppTopBar with pending request count and inline approve/decline
+- **activity:** Unified activity feed in pipeline center panel (Overview, Interviews, Documents, Activity tabs)
+- **activity:** Merged "All" feed combining comments, tasks, and activity history sorted by timestamp
+- **activity:** Unified comment/task input with toggle in Activity tab
+- **activity:** `candidateId` aggregation filter on comments and activity-log APIs (cross-application)
+- **assessment:** Job assessment templates with multi-round structure, weighted tasks, pass/fail criteria per task
+- **assessment:** Application assessment sessions with scoring UI, behavioral notes, decision tracking
+- **assessment:** Weighted score computation (0-10 scale), synced back to application score (0-100)
+- **assessment:** `useAssessment` and `useApplicationTasks` composables
+- **assessment:** Assessment template builder page (`jobs/[id]/assessment.vue`) with round/task editor
+- **documents:** Expanded document types: portfolio, reference, certificate (migration 0017)
+- **documents:** Candidate links table (`candidate_link`) with GitHub, LinkedIn, portfolio, website, other types
+- **documents:** Links API (`GET/POST/DELETE /api/candidates/:id/links`)
+- **breadcrumbs:** `AppBreadcrumb` component on Kanban, application detail, and candidate pages
+- **candidates:** Candidate profile page overhaul with progressive disclosure layout
+- **candidates:** Header with avatar initials, inline links, quick stats
+- **candidates:** Applications tab with assessment scores and decision badges per application
+- **candidates:** Activity tab aggregating comments and history across all applications
+
+### Changed
+
+- **pipeline:** `statusCounts` now computed dynamically from pipeline stages (not hardcoded)
+- **pipeline:** Pipeline settings UI supports gate stage creation and approval rule configuration
+- **pipeline:** `stageColorClass` extracted from Kanban page into `usePipelineConfig()` composable
+- **comments:** `commentQuerySchema` now supports union type (targetType/targetId OR candidateId)
+
+### Fixed
+
+- **pipeline:** Blank screen on empty pipeline stages (missing `stageLabel` helper)
+- **pipeline:** Server error on status promotion (orgSettings query wrapped in try/catch with fallback)
+- **pipeline:** Status dot/badge colors no longer hardcoded by stage ID (uses index-based palette)
+- **pipeline:** Custom stages now properly tallied in status counts
+- **pipeline:** Replaced all `alert()` calls with reactive toast error pattern
+- **pipeline:** Fixed `currentApplicationId` variable hoisting crash (temporal dead zone in script setup)
+
+### Database Migrations
+
+- **0017:** `candidate_link` table, expanded document_type enum (portfolio, reference, certificate)
+- **0018:** `stage_approval_request`, `job_assessment_template`, `application_assessment`, `application_task` tables
 
 ---
 
@@ -83,37 +134,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Categories: **Add
 
 ## [1.1.0](https://github.com/reqcore-inc/reqcore/compare/v1.0.0...v1.1.0) (2026-03-10)
 
-
 ### ✨ Features
 
-* add new article on best free ATS software for startups and update related content ([021f8db](https://github.com/reqcore-inc/reqcore/commit/021f8db2351260cd5e2ac738aa571da85e91f4dc))
-* add new article on the differences between open source and free ATS, including a comprehensive guide and internal links ([da31e77](https://github.com/reqcore-inc/reqcore/commit/da31e77ba6187f7c8faa6ddb1d626c1fdfe57d82))
-* add release automation configuration and update versioning ([a37c1cc](https://github.com/reqcore-inc/reqcore/commit/a37c1cc8f032816ab10a184ad3b487d65b5997a7))
-* **analytics:** integrate PostHog for user analytics and consent management ([8bd4bd5](https://github.com/reqcore-inc/reqcore/commit/8bd4bd50cb62254e9d39f8c92214c2af24b8671c))
-* **analytics:** integrate PostHog for user analytics and consent management ([619f239](https://github.com/reqcore-inc/reqcore/commit/619f239c06a865a2d1a091a1d5f85a941548b5a7))
-* **consent:** implement consent banner for analytics tracking and update privacy policy ([24a9201](https://github.com/reqcore-inc/reqcore/commit/24a920163ecf9a3a9a65d4476f115dd34357a34b))
-* **consent:** simplify consent message for clarity in analytics tracking ([c28356a](https://github.com/reqcore-inc/reqcore/commit/c28356a27eea15715e686cd83686ac7cdb6bd29b))
-* **consent:** update wording in consent banner for improved clarity ([91c6550](https://github.com/reqcore-inc/reqcore/commit/91c655032d8e3cf515b065b9fe13e216f460c90d))
-* **database:** enhance database URL resolution with fallback handling for environment variables ([0302102](https://github.com/reqcore-inc/reqcore/commit/0302102c984b04642cd2e4de2bbb4cdcdf88b185))
-* **dependencies:** update PostHog CLI and related packages for improved functionality ([f532a3e](https://github.com/reqcore-inc/reqcore/commit/f532a3e3c53d522b1d11c93314cf91252400a6f3))
-* **interviews:** add Interview interface for managing interview data structure ([da4e78d](https://github.com/reqcore-inc/reqcore/commit/da4e78dc6552b14201432429229a10363eaf5748))
-* **navbar:** replace static navbar with reusable PublicNavBar component across blog, catalog, docs, and roadmap pages ([a0d17db](https://github.com/reqcore-inc/reqcore/commit/a0d17dbcfe3613d2f5817f54ee9b46758a350ad5))
-* **nuxt:** conditionally load PostHog module based on API key availability to prevent crashes ([ddb1f59](https://github.com/reqcore-inc/reqcore/commit/ddb1f599ea56b4d938cb8c50b754fac4561070fd))
-* **posthog:** add PostHog configuration for server-side event capture ([9958fe5](https://github.com/reqcore-inc/reqcore/commit/9958fe5d37ea75366216bcbd5a2187346c62c938))
-* **posthog:** enhance analytics consent management and data minimization in PostHog integration ([92588d9](https://github.com/reqcore-inc/reqcore/commit/92588d9a3a3801eea7e63bae46d773a9e2dc771c))
-* **posthog:** enhance PostHog integration with consent handling and graceful shutdown ([5e708fa](https://github.com/reqcore-inc/reqcore/commit/5e708faf1b3808fc24f4a6c51285eb9a4920004b))
-* **posthog:** replicate safe accessor for PostHog in composables and plugins to ensure compatibility when not configured ([1e948cb](https://github.com/reqcore-inc/reqcore/commit/1e948cbc2e9543e54756f553327454e70c726702))
-* **posthog:** update PostHog integration with environment variables and consent handling ([4b745ec](https://github.com/reqcore-inc/reqcore/commit/4b745ec2f9e768ad11e113799d3b63e17a6cef60))
-* **posthog:** update PostHog integration with environment variables and consent handling ([4c11f99](https://github.com/reqcore-inc/reqcore/commit/4c11f99c9bc1331989c80b78bf793dd63ec2584f))
-
+- add new article on best free ATS software for startups and update related content ([021f8db](https://github.com/reqcore-inc/reqcore/commit/021f8db2351260cd5e2ac738aa571da85e91f4dc))
+- add new article on the differences between open source and free ATS, including a comprehensive guide and internal links ([da31e77](https://github.com/reqcore-inc/reqcore/commit/da31e77ba6187f7c8faa6ddb1d626c1fdfe57d82))
+- add release automation configuration and update versioning ([a37c1cc](https://github.com/reqcore-inc/reqcore/commit/a37c1cc8f032816ab10a184ad3b487d65b5997a7))
+- **analytics:** integrate PostHog for user analytics and consent management ([8bd4bd5](https://github.com/reqcore-inc/reqcore/commit/8bd4bd50cb62254e9d39f8c92214c2af24b8671c))
+- **analytics:** integrate PostHog for user analytics and consent management ([619f239](https://github.com/reqcore-inc/reqcore/commit/619f239c06a865a2d1a091a1d5f85a941548b5a7))
+- **consent:** implement consent banner for analytics tracking and update privacy policy ([24a9201](https://github.com/reqcore-inc/reqcore/commit/24a920163ecf9a3a9a65d4476f115dd34357a34b))
+- **consent:** simplify consent message for clarity in analytics tracking ([c28356a](https://github.com/reqcore-inc/reqcore/commit/c28356a27eea15715e686cd83686ac7cdb6bd29b))
+- **consent:** update wording in consent banner for improved clarity ([91c6550](https://github.com/reqcore-inc/reqcore/commit/91c655032d8e3cf515b065b9fe13e216f460c90d))
+- **database:** enhance database URL resolution with fallback handling for environment variables ([0302102](https://github.com/reqcore-inc/reqcore/commit/0302102c984b04642cd2e4de2bbb4cdcdf88b185))
+- **dependencies:** update PostHog CLI and related packages for improved functionality ([f532a3e](https://github.com/reqcore-inc/reqcore/commit/f532a3e3c53d522b1d11c93314cf91252400a6f3))
+- **interviews:** add Interview interface for managing interview data structure ([da4e78d](https://github.com/reqcore-inc/reqcore/commit/da4e78dc6552b14201432429229a10363eaf5748))
+- **navbar:** replace static navbar with reusable PublicNavBar component across blog, catalog, docs, and roadmap pages ([a0d17db](https://github.com/reqcore-inc/reqcore/commit/a0d17dbcfe3613d2f5817f54ee9b46758a350ad5))
+- **nuxt:** conditionally load PostHog module based on API key availability to prevent crashes ([ddb1f59](https://github.com/reqcore-inc/reqcore/commit/ddb1f599ea56b4d938cb8c50b754fac4561070fd))
+- **posthog:** add PostHog configuration for server-side event capture ([9958fe5](https://github.com/reqcore-inc/reqcore/commit/9958fe5d37ea75366216bcbd5a2187346c62c938))
+- **posthog:** enhance analytics consent management and data minimization in PostHog integration ([92588d9](https://github.com/reqcore-inc/reqcore/commit/92588d9a3a3801eea7e63bae46d773a9e2dc771c))
+- **posthog:** enhance PostHog integration with consent handling and graceful shutdown ([5e708fa](https://github.com/reqcore-inc/reqcore/commit/5e708faf1b3808fc24f4a6c51285eb9a4920004b))
+- **posthog:** replicate safe accessor for PostHog in composables and plugins to ensure compatibility when not configured ([1e948cb](https://github.com/reqcore-inc/reqcore/commit/1e948cbc2e9543e54756f553327454e70c726702))
+- **posthog:** update PostHog integration with environment variables and consent handling ([4b745ec](https://github.com/reqcore-inc/reqcore/commit/4b745ec2f9e768ad11e113799d3b63e17a6cef60))
+- **posthog:** update PostHog integration with environment variables and consent handling ([4c11f99](https://github.com/reqcore-inc/reqcore/commit/4c11f99c9bc1331989c80b78bf793dd63ec2584f))
 
 ### 🐛 Bug Fixes
 
-* add config and manifest file parameters to release-please action ([ff30b11](https://github.com/reqcore-inc/reqcore/commit/ff30b11bbcaea0d7ab92be887e008edc656ba5cc))
-* **posthog:** read server PostHog config from env vars directly ([74ae687](https://github.com/reqcore-inc/reqcore/commit/74ae6874e2019944bf8d71f314fb2dfc988b7658))
-* **posthog:** update proxy targets for PostHog integration with environment variable notes ([da4e78d](https://github.com/reqcore-inc/reqcore/commit/da4e78dc6552b14201432429229a10363eaf5748))
-* **release:** remove pull request header from release configuration ([9636fd5](https://github.com/reqcore-inc/reqcore/commit/9636fd5581032283af5c89b8be654ea01ae5fa6f))
-* update token in release-please action for proper authentication ([5ae917e](https://github.com/reqcore-inc/reqcore/commit/5ae917e3c30cd5e819a1be97045e4890d4ac0f7b))
+- add config and manifest file parameters to release-please action ([ff30b11](https://github.com/reqcore-inc/reqcore/commit/ff30b11bbcaea0d7ab92be887e008edc656ba5cc))
+- **posthog:** read server PostHog config from env vars directly ([74ae687](https://github.com/reqcore-inc/reqcore/commit/74ae6874e2019944bf8d71f314fb2dfc988b7658))
+- **posthog:** update proxy targets for PostHog integration with environment variable notes ([da4e78d](https://github.com/reqcore-inc/reqcore/commit/da4e78dc6552b14201432429229a10363eaf5748))
+- **release:** remove pull request header from release configuration ([9636fd5](https://github.com/reqcore-inc/reqcore/commit/9636fd5581032283af5c89b8be654ea01ae5fa6f))
+- update token in release-please action for proper authentication ([5ae917e](https://github.com/reqcore-inc/reqcore/commit/5ae917e3c30cd5e819a1be97045e4890d4ac0f7b))
 
 ## 2026-03-08
 
@@ -164,6 +213,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Categories: **Add
 - **PR-only seed script** — removed `server/scripts/seed-pr.ts` and the `db:seed:pr` npm script
 
 ---
+
 ## 2026-02-21
 
 ### Fixed
@@ -179,6 +229,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Categories: **Add
 - **Demo env guidance** — `.env.example` demo slug example now matches seeded demo organization slug (`reqcore-demo`) to reduce configuration drift
 
 ---
+
 ## 2026-02-19
 
 ### Changed
@@ -193,6 +244,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Categories: **Add
 - **`start` script in `package.json`** — `node .output/server/index.mjs` for Railway Nixpacks detection
 
 ---
+
 ## 2026-02-18
 
 ### Added
@@ -215,6 +267,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Categories: **Add
 - **Navigation** — "Blog" link added to landing page navbar/footer and roadmap page navbar
 
 ---
+
 ## 2026-02-16
 
 ### Added
@@ -234,6 +287,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Categories: **Add
 - **S3 bucket privacy strategy** — instead of setting an explicit deny-all policy (which used AWS-only condition keys), the startup plugin now deletes any existing bucket policy to ensure MinIO's default private behavior
 
 ---
+
 ## 2026-02-15
 
 ### Added
@@ -249,6 +303,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Categories: **Add
 - **Roadmap navigation links** — Roadmap link added to landing page navbar and footer
 
 ---
+
 ## 2026-02-14
 
 ### Added

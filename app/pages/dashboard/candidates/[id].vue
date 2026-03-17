@@ -52,9 +52,7 @@ const activeTab = ref<'applications' | 'documents' | 'activity'>('applications')
 // Display helpers
 // ─────────────────────────────────────────────
 
-function getCandidateInitials(firstName: string, lastName: string): string {
-  return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase()
-}
+// getCandidateInitials() auto-imported from ~/utils/pipeline-helpers
 
 const firstAppliedDate = computed(() => {
   const apps = candidate.value?.applications
@@ -65,14 +63,7 @@ const firstAppliedDate = computed(() => {
   return new Date(oldest.createdAt).toLocaleDateString()
 })
 
-const documentTypeLabels: Record<string, string> = {
-  resume: 'Resume',
-  cover_letter: 'Cover Letter',
-  portfolio: 'Portfolio',
-  reference: 'Reference',
-  certificate: 'Certificate',
-  other: 'Other',
-}
+// DOC_TYPE_LABELS / formatDocumentType() auto-imported from ~/utils/pipeline-helpers
 
 const decisionLabels: Record<string, string> = {
   hire: 'Hire',
@@ -252,17 +243,7 @@ const feedFiltered = computed(() => {
   return feedAll.value
 })
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
-  return new Date(dateStr).toLocaleDateString()
-}
+// timeAgo() auto-imported from ~/utils/pipeline-helpers
 
 function formatActivityAction(action: string, metadata: Record<string, string> | null): string {
   if (action === 'status_changed' && metadata?.from && metadata?.to) {
@@ -798,7 +779,7 @@ async function handleDeleteDoc(docId: string) {
                       {{ doc.originalFilename }}
                     </p>
                     <span class="text-xs text-surface-400">
-                      {{ documentTypeLabels[doc.type] ?? doc.type }}
+                      {{ formatDocumentType(doc.type) }}
                       · {{ new Date(doc.createdAt).toLocaleDateString() }}
                       <template v-if="doc.mimeType === 'application/pdf'"> · <span class="text-brand-500 dark:text-brand-400">Click to preview</span></template>
                     </span>

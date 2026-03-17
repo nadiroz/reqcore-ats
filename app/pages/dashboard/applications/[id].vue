@@ -3,6 +3,8 @@ import { User, Briefcase, Calendar, Clock, Hash, FileText, MessageSquare, Send, 
 import type { AssessmentDecision } from '~~/shared/assessment-types'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
 
+const { stageColorClass } = usePipelineConfig()
+
 definePageMeta({
   layout: 'dashboard',
   middleware: ['auth', 'require-org'],
@@ -45,21 +47,13 @@ const transitionClasses: Record<string, string> = {
   rejected: 'bg-danger-600 text-white shadow-sm shadow-danger-900/20 hover:bg-danger-700',
 }
 
-const transitionDotClasses: Record<string, string> = {
-  new: 'bg-surface-400 dark:bg-surface-500',
-  screening: 'bg-info-200',
-  interview: 'bg-warning-200',
-  offer: 'bg-success-200',
-  hired: 'bg-success-100',
-  rejected: 'bg-danger-200',
-}
-
 const allowedTransitions = computed(() => {
   if (!application.value) return []
   return APPLICATION_STATUS_TRANSITIONS[application.value.status] ?? []
 })
 
 const isTransitioning = ref(false)
+const statusError = ref<string | null>(null)
 const showInterviewSidebar = ref(false)
 
 async function handleTransition(newStatus: string) {
@@ -68,7 +62,8 @@ async function handleTransition(newStatus: string) {
     await updateApplication({ status: newStatus as any })
   } catch (err: any) {
     if (handlePreviewReadOnlyError(err)) return
-    alert(err.data?.statusMessage ?? 'Failed to update status')
+    statusError.value = err.data?.statusMessage ?? 'Failed to update status'
+    setTimeout(() => { statusError.value = null }, 6000)
   } finally {
     isTransitioning.value = false
   }
@@ -94,7 +89,8 @@ async function saveNotes() {
     isEditingNotes.value = false
   } catch (err: any) {
     if (handlePreviewReadOnlyError(err)) return
-    alert(err.data?.statusMessage ?? 'Failed to save notes')
+    statusError.value = err.data?.statusMessage ?? 'Failed to save notes'
+    setTimeout(() => { statusError.value = null }, 6000)
   } finally {
     isSavingNotes.value = false
   }
@@ -155,22 +151,6 @@ async function handleDeleteComment(id: string) {
   } catch {
     // error handled in composable
   }
-}
-
-function formatRelativeTime(date: string): string {
-  const diff = Date.now() - new Date(date).getTime()
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  const days = Math.floor(hrs / 24)
-  if (days < 30) return `${days}d ago`
-  return new Date(date).toLocaleDateString()
-}
-
-function getInitials(name: string): string {
-  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 }
 
 // ─────────────────────────────────────────────
@@ -305,24 +285,6 @@ const decisionLabels: Record<string, string> = {
   pending: 'Pending',
 }
 
-// ─────────────────────────────────────────────
-// Display helpers
-// ─────────────────────────────────────────────
-
-const statusBadgeClasses: Record<string, string> = {
-  new: 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-400',
-  screening: 'bg-info-50 text-info-700 dark:bg-info-950 dark:text-info-400',
-  interview: 'bg-warning-50 text-warning-700 dark:bg-warning-950 dark:text-warning-400',
-  offer: 'bg-success-50 text-success-700 dark:bg-success-950 dark:text-success-400',
-  hired: 'bg-success-100 text-success-800 dark:bg-success-900 dark:text-success-300',
-  rejected: 'bg-surface-100 text-surface-500 dark:bg-surface-800 dark:text-surface-400',
-}
-
-function formatResponseValue(value: unknown): string {
-  if (Array.isArray(value)) return value.join(', ')
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
-  return String(value ?? '—')
-}
 </script>
 
 <template>
@@ -374,7 +336,7 @@ function formatResponseValue(value: unknown): string {
         <div class="flex flex-wrap items-center gap-3 mb-4">
           <span
             class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize"
-            :class="statusBadgeClasses[application.status] ?? 'bg-surface-100 text-surface-600'"
+            :class="stageColorClass(application.status, 'badge')"
           >
             {{ application.status }}
           </span>
@@ -395,7 +357,7 @@ function formatResponseValue(value: unknown): string {
           >
             <span
               class="mr-2 inline-flex size-1.5 rounded-full"
-              :class="transitionDotClasses[nextStatus] ?? 'bg-surface-400 dark:bg-surface-500'"
+              :class="stageColorClass(nextStatus, 'dot')"
             />
             {{ transitionLabels[nextStatus] ?? nextStatus }}
           </button>
@@ -669,12 +631,12 @@ function formatResponseValue(value: unknown): string {
                 class="flex gap-3"
               >
                 <div class="shrink-0 size-7 rounded-full bg-brand-100 dark:bg-brand-900 flex items-center justify-center text-xs font-semibold text-brand-700 dark:text-brand-300">
-                  {{ getInitials(comment.authorName) }}
+                  {{ getCandidateInitials(comment.authorName?.split(' ')[0], comment.authorName?.split(' ')[1]) }}
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 mb-0.5">
                     <span class="text-xs font-medium text-surface-700 dark:text-surface-200">{{ comment.authorName }}</span>
-                    <span class="text-xs text-surface-400">{{ formatRelativeTime(comment.createdAt) }}</span>
+                    <span class="text-xs text-surface-400">{{ timeAgo(comment.createdAt) }}</span>
                     <template v-if="comment.authorId === currentUserId">
                       <button
                         class="ml-auto text-xs text-surface-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
@@ -756,7 +718,7 @@ function formatResponseValue(value: unknown): string {
                 <dd>
                   <span
                     class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize"
-                    :class="statusBadgeClasses[application.status] ?? 'bg-surface-100 text-surface-600'"
+                    :class="stageColorClass(application.status, 'badge')"
                   >
                     {{ application.status }}
                   </span>
@@ -927,6 +889,22 @@ function formatResponseValue(value: unknown): string {
       </div>
     </template>
   </div>
+
+  <!-- Status error toast -->
+  <Transition name="slide-down">
+    <div
+      v-if="statusError"
+      class="pointer-events-auto fixed left-1/2 top-4 z-[200] -translate-x-1/2 flex items-center gap-3 rounded-xl border border-danger-200 bg-white px-4 py-3 shadow-lg dark:border-danger-800/60 dark:bg-surface-900"
+    >
+      <span class="text-sm font-medium text-danger-700 dark:text-danger-300">{{ statusError }}</span>
+      <button
+        class="ml-1 flex cursor-pointer items-center justify-center rounded-md p-0.5 text-danger-400 hover:bg-danger-50 hover:text-danger-600 dark:hover:bg-danger-950/60 transition-colors"
+        @click="statusError = null"
+      >
+        <X class="size-3.5" />
+      </button>
+    </div>
+  </Transition>
 
   <!-- Interview Schedule Sidebar -->
   <InterviewScheduleSidebar

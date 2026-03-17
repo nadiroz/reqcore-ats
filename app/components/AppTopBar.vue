@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import {
-  Briefcase, Plus, Bell,
+  Briefcase, Bell,
   Kanban, FileText, LogOut, Table2,
   Sun, Moon, MessageSquarePlus, Settings,
   ChevronDown, Menu, X, Users, ChevronLeft,
   LayoutDashboard, Calendar, ArrowUpCircle,
-  Cloud, Server, Sparkles,
+  Cloud, Server, Sparkles, Search, User,
+  ClipboardCheck,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -131,6 +132,7 @@ const jobTabs = computed(() => {
   return [
     { label: 'Pipeline', to: base, icon: Kanban, exact: true },
     { label: 'Table', to: `${base}/candidates`, icon: Table2, exact: true },
+    { label: 'Assessment', to: `${base}/assessment`, icon: ClipboardCheck, exact: true },
     { label: 'Application Form', to: `${base}/application-form`, icon: FileText, exact: true },
   ]
 })
@@ -145,8 +147,11 @@ const mainNav = [
   { label: 'Candidates', to: '/dashboard/candidates', icon: Users, exact: false },
   { label: 'Applications', to: '/dashboard/applications', icon: FileText, exact: false },
   { label: 'Interviews', to: '/dashboard/interviews', icon: Calendar, exact: false },
-  { label: 'Settings', to: '/dashboard/settings', icon: Settings, exact: false },
 ]
+
+const emit = defineEmits<{
+  (e: 'open-command-palette'): void
+}>()
 
 function isActiveRoute(to: string, exact: boolean) {
   const localizedTo = localePath(to)
@@ -275,31 +280,22 @@ onUnmounted(() => {
             </Transition>
           </div>
 
-          <!-- New Job button (desktop) -->
-          <NuxtLink
-            :to="$localePath('/dashboard/jobs/new')"
-            class="hidden sm:inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-sm shadow-brand-600/20 hover:bg-brand-700 hover:shadow-md hover:shadow-brand-600/25 active:bg-brand-800 transition-all duration-200 no-underline"
-          >
-            <Plus class="size-3.5" />
-            New Job
-          </NuxtLink>
-
           <!-- Org Switcher (only when multiple orgs exist) -->
           <div v-if="orgs && orgs.length > 1" class="hidden lg:block ml-1">
             <OrgSwitcher />
           </div>
 
-          <!-- Color mode toggle -->
+          <!-- Command palette trigger (Cmd+K) -->
           <button
-            class="flex items-center justify-center size-8 rounded-lg text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800 transition-all duration-200 cursor-pointer border-0 bg-transparent"
-            :title="isDark ? 'Switch to light' : 'Switch to dark'"
-            @click="toggleColorMode"
+            class="hidden sm:flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-surface-400 dark:text-surface-500 hover:text-surface-600 dark:hover:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 transition-all duration-200 cursor-pointer border border-surface-200 dark:border-surface-700 bg-transparent"
+            title="Search (⌘K)"
+            @click="emit('open-command-palette')"
           >
-            <Sun v-if="isDark" class="size-4" />
-            <Moon v-else class="size-4" />
+            <Search class="size-3.5" />
+            <span class="text-xs">⌘K</span>
           </button>
 
-          <!-- Approval bell -->
+          <!-- Notification bell -->
           <div ref="approvalDropdownRoot" class="relative">
             <button
               class="relative flex items-center justify-center size-8 rounded-lg text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800 transition-all duration-200 cursor-pointer border-0 bg-transparent"
@@ -351,29 +347,6 @@ onUnmounted(() => {
             </Transition>
           </div>
 
-          <!-- Updates button -->
-          <NuxtLink
-            :to="$localePath('/dashboard/updates')"
-            class="hidden sm:flex items-center justify-center size-8 rounded-lg transition-all duration-200 no-underline"
-            :class="isActiveRoute('/dashboard/updates', false)
-              ? 'text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-950/40'
-              : 'text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800'"
-            title="Updates & changelog"
-            aria-label="Updates & changelog"
-          >
-            <ArrowUpCircle class="size-4" />
-          </NuxtLink>
-
-          <!-- Feedback button -->
-          <button
-            v-if="isFeedbackEnabled"
-            class="flex items-center justify-center size-8 rounded-lg text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800 transition-all duration-200 cursor-pointer border-0 bg-transparent"
-            title="Report issue"
-            @click="showFeedbackModal = true"
-          >
-            <MessageSquarePlus class="size-4" />
-          </button>
-
           <!-- Divider -->
           <div class="hidden sm:block w-px h-6 bg-surface-200 dark:bg-surface-700 mx-1" />
 
@@ -411,7 +384,7 @@ onUnmounted(() => {
                   <div class="text-xs text-surface-500 dark:text-surface-400 truncate mt-0.5">{{ userEmail }}</div>
                 </div>
 
-                <!-- Mobile-only items -->
+                <!-- Mobile-only nav items -->
                 <div class="md:hidden border-b border-surface-100 dark:border-surface-800 py-1">
                   <NuxtLink
                     v-for="item in mainNav"
@@ -430,7 +403,52 @@ onUnmounted(() => {
                   <OrgSwitcher />
                 </div>
 
-                <!-- Actions -->
+                <!-- Profile, Settings, Updates -->
+                <div class="py-1 border-b border-surface-100 dark:border-surface-800">
+                  <NuxtLink
+                    :to="$localePath('/dashboard/settings/account')"
+                    class="flex items-center gap-2.5 px-4 py-2 text-sm text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-800 hover:text-surface-900 dark:hover:text-surface-100 transition-colors no-underline"
+                  >
+                    <User class="size-4" />
+                    Profile
+                  </NuxtLink>
+                  <NuxtLink
+                    :to="$localePath('/dashboard/settings')"
+                    class="flex items-center gap-2.5 px-4 py-2 text-sm text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-800 hover:text-surface-900 dark:hover:text-surface-100 transition-colors no-underline"
+                  >
+                    <Settings class="size-4" />
+                    Settings
+                  </NuxtLink>
+                  <NuxtLink
+                    :to="$localePath('/dashboard/updates')"
+                    class="flex items-center gap-2.5 px-4 py-2 text-sm text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-800 hover:text-surface-900 dark:hover:text-surface-100 transition-colors no-underline"
+                  >
+                    <ArrowUpCircle class="size-4" />
+                    Updates
+                  </NuxtLink>
+                  <button
+                    v-if="isFeedbackEnabled"
+                    class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-800 hover:text-surface-900 dark:hover:text-surface-100 transition-colors cursor-pointer border-0 bg-transparent text-left"
+                    @click="showFeedbackModal = true; showUserMenu = false"
+                  >
+                    <MessageSquarePlus class="size-4" />
+                    Send Feedback
+                  </button>
+                </div>
+
+                <!-- Color mode toggle -->
+                <div class="py-1 border-b border-surface-100 dark:border-surface-800">
+                  <button
+                    class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-800 hover:text-surface-900 dark:hover:text-surface-100 transition-colors cursor-pointer border-0 bg-transparent text-left"
+                    @click="toggleColorMode()"
+                  >
+                    <Sun v-if="isDark" class="size-4" />
+                    <Moon v-else class="size-4" />
+                    {{ isDark ? 'Light mode' : 'Dark mode' }}
+                  </button>
+                </div>
+
+                <!-- Sign out -->
                 <div class="py-1">
                   <button
                     class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-800 hover:text-surface-900 dark:hover:text-surface-100 transition-colors cursor-pointer border-0 bg-transparent text-left"
@@ -539,14 +557,6 @@ onUnmounted(() => {
           >
             <component :is="item.icon" class="size-4" />
             {{ item.label }}
-          </NuxtLink>
-
-          <NuxtLink
-            :to="$localePath('/dashboard/jobs/new')"
-            class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium bg-brand-600 text-white hover:bg-brand-700 transition-colors no-underline sm:hidden mt-1"
-          >
-            <Plus class="size-4" />
-            New Job
           </NuxtLink>
 
           <!-- Get Started CTA (demo mode, mobile) -->
