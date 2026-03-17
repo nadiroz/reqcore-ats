@@ -17,8 +17,11 @@ export function useMentions() {
     if (isLoaded.value) return
     try {
       const result = await authClient.organization.listMembers()
-      if (result.data) {
-        members.value = result.data.map((m: any) => ({
+      // better-auth listMembers returns { members, total }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const list: any[] = (result.data as any)?.members ?? (Array.isArray(result.data) ? result.data : [])
+      if (list.length > 0) {
+        members.value = list.map(m => ({
           userId: m.userId,
           name: m.user?.name ?? m.user?.email ?? 'Unknown',
           email: m.user?.email ?? '',
@@ -49,7 +52,7 @@ export function useMentions() {
     const ids: string[] = []
     let match
     while ((match = regex.exec(body)) !== null) {
-      ids.push(match[2])
+      if (match[2]) ids.push(match[2])
     }
     return [...new Set(ids)]
   }

@@ -65,17 +65,18 @@ export function computeTransitions(stages: PipelineStage[]): Record<string, stri
   for (let i = 0; i < activeStages.length; i++) {
     const transitions: string[] = []
     if (i < activeStages.length - 1) {
-      transitions.push(activeStages[i + 1].id)
+      transitions.push(activeStages[i + 1]!.id)
     } else if (hiredId) {
       transitions.push(hiredId)
     }
     if (rejectedId) transitions.push(rejectedId)
-    result[activeStages[i].id] = transitions
+    const stage = activeStages[i]
+    if (stage) result[stage.id] = transitions
   }
 
   if (hiredId) result[hiredId] = []
   if (rejectedId) {
-    result[rejectedId] = activeStages.length > 0 ? [activeStages[0].id] : []
+    result[rejectedId] = activeStages.length > 0 ? [activeStages[0]!.id] : []
   }
 
   return result

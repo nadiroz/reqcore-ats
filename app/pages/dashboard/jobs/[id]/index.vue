@@ -248,7 +248,7 @@ const { comments, createComment, updateComment, deleteComment } = useComments({
   targetId: computed(() => selectedApplicationId.value || undefined),
 })
 
-const { data: activityLogData } = useFetch('/api/activity-log', {
+const { data: activityLogData, refresh: refreshActivityLog } = useFetch('/api/activity-log', {
   key: computed(() => `activity-log-${selectedApplicationId.value}`),
   query: computed(() => ({
     resourceType: 'application',
@@ -256,8 +256,9 @@ const { data: activityLogData } = useFetch('/api/activity-log', {
     limit: 50,
   })),
   headers: useRequestHeaders(['cookie']),
-  immediate: computed(() => !!selectedApplicationId.value),
+  immediate: false,
 })
+watch(selectedApplicationId, (id) => { if (id) refreshActivityLog() }, { immediate: true })
 const activityItems = computed(() => activityLogData.value?.data ?? [])
 
 // ─────────────────────────────────────────────

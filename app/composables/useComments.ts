@@ -57,11 +57,14 @@ export function useComments(options: {
     key: fetchKey,
     query: computed(() => query.value ?? {}),
     headers: useRequestHeaders(['cookie']),
-    immediate: computed(() => !!query.value),
+    immediate: false,
   })
 
-  const comments = computed(() => data.value?.data ?? [])
-  const total = computed(() => data.value?.total ?? 0)
+  // Fetch when query becomes valid; re-fetch on change
+  watch(query, (q) => { if (q) refresh() }, { immediate: true })
+
+  const comments = computed<Comment[]>(() => (data.value as CommentListResponse | null)?.data ?? [])
+  const total = computed<number>(() => (data.value as CommentListResponse | null)?.total ?? 0)
   const isLoading = computed(() => status.value === 'pending')
 
   /** Top-level comments with their replies grouped underneath. */

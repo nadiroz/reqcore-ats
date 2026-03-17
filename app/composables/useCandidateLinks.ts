@@ -35,11 +35,18 @@ export function useCandidateLinks(candidateId: MaybeRefOrGetter<string | undefin
     {
       key: fetchKey,
       headers: useRequestHeaders(['cookie']),
-      immediate: computed(() => !!toValue(candidateId)),
+      immediate: false,
     },
   )
 
-  const links = computed(() => data.value ?? [])
+  // Fetch when candidateId becomes available; re-fetch on change
+  watch(
+    () => toValue(candidateId),
+    (id) => { if (id) refresh() },
+    { immediate: true },
+  )
+
+  const links = computed<CandidateLink[]>(() => (data.value as CandidateLink[] | null) ?? [])
   const isLoading = computed(() => status.value === 'pending')
 
   async function addLink(payload: { type: string; url: string; label?: string }) {

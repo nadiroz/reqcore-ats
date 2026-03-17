@@ -33,10 +33,12 @@ export default defineEventHandler(async (event) => {
       ),
     )
   } else {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q = query as any
     where = and(
       eq(comment.organizationId, orgId),
-      eq(comment.targetType, query.targetType),
-      eq(comment.targetId, query.targetId),
+      eq(comment.targetType, q.targetType as 'job' | 'candidate' | 'application'),
+      eq(comment.targetId, q.targetId as string),
     )
   }
 

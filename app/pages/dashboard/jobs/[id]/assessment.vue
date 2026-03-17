@@ -87,13 +87,14 @@ function removeRound(idx: number) {
 // ─────────────────────────────────────────────
 
 function addTask(roundIdx: number) {
-  rounds.value[roundIdx].tasks.push(emptyTask())
+  rounds.value[roundIdx]?.tasks.push(emptyTask())
   markDirty()
 }
 
 function removeTask(roundIdx: number, taskIdx: number) {
-  if (rounds.value[roundIdx].tasks.length <= 1) return
-  rounds.value[roundIdx].tasks.splice(taskIdx, 1)
+  const round = rounds.value[roundIdx]
+  if (!round || round.tasks.length <= 1) return
+  round.tasks.splice(taskIdx, 1)
   markDirty()
 }
 
@@ -102,14 +103,16 @@ function removeTask(roundIdx: number, taskIdx: number) {
 // ─────────────────────────────────────────────
 
 function addCriterion(roundIdx: number, taskIdx: number, type: 'pass' | 'fail') {
-  const task = rounds.value[roundIdx].tasks[taskIdx]
+  const task = rounds.value[roundIdx]?.tasks[taskIdx]
+  if (!task) return
   if (type === 'pass') task.passCriteria.push('')
   else task.failCriteria.push('')
   markDirty()
 }
 
 function removeCriterion(roundIdx: number, taskIdx: number, type: 'pass' | 'fail', critIdx: number) {
-  const task = rounds.value[roundIdx].tasks[taskIdx]
+  const task = rounds.value[roundIdx]?.tasks[taskIdx]
+  if (!task) return
   if (type === 'pass') task.passCriteria.splice(critIdx, 1)
   else task.failCriteria.splice(critIdx, 1)
   markDirty()
@@ -120,7 +123,7 @@ function removeCriterion(roundIdx: number, taskIdx: number, type: 'pass' | 'fail
 // ─────────────────────────────────────────────
 
 function totalWeight(roundIdx: number): number {
-  return rounds.value[roundIdx].tasks.reduce((sum, t) => sum + (t.weight || 0), 0)
+  return rounds.value[roundIdx]?.tasks.reduce((sum, t) => sum + (t.weight || 0), 0) ?? 0
 }
 
 // ─────────────────────────────────────────────

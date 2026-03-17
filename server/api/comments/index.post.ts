@@ -97,7 +97,7 @@ export default defineEventHandler(async (event) => {
   const mentionedUserIds = new Set<string>()
   let mentionMatch
   while ((mentionMatch = mentionRegex.exec(body.body)) !== null) {
-    mentionedUserIds.add(mentionMatch[2])
+    if (mentionMatch[2]) mentionedUserIds.add(mentionMatch[2])
   }
 
   // Strip mention markup for notification preview

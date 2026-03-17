@@ -46,7 +46,7 @@ function checkForMention(textarea: HTMLTextAreaElement) {
   }
 
   // Check if @ is at the start or preceded by a space/newline
-  if (atIndex > 0 && !/[\s\n]/.test(textBefore[atIndex - 1])) {
+  if (atIndex > 0 && !/[\s\n]/.test(textBefore[atIndex - 1] ?? '')) {
     showDropdown.value = false
     return
   }
@@ -98,7 +98,8 @@ function handleKeydown(e: KeyboardEvent) {
   } else if (e.key === 'Enter' || e.key === 'Tab') {
     if (suggestions.value.length > 0) {
       e.preventDefault()
-      insertMention(suggestions.value[selectedIndex.value])
+      const mention = suggestions.value[selectedIndex.value]
+      if (mention) insertMention(mention)
     }
   } else if (e.key === 'Escape') {
     showDropdown.value = false
@@ -107,6 +108,10 @@ function handleKeydown(e: KeyboardEvent) {
 
 function getInitials(name: string): string {
   return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()
+}
+
+function handleBlur() {
+  setTimeout(() => { showDropdown.value = false }, 200)
 }
 </script>
 
@@ -121,7 +126,7 @@ function getInitials(name: string): string {
       class="w-full rounded-lg border border-surface-300 dark:border-surface-700 bg-white dark:bg-surface-800 px-3 py-2 text-sm text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors resize-none"
       @input="handleInput"
       @keydown="handleKeydown"
-      @blur="setTimeout(() => showDropdown = false, 200)"
+      @blur="handleBlur"
     />
 
     <!-- Mention autocomplete dropdown -->

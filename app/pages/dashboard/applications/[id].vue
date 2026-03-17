@@ -527,7 +527,7 @@ const decisionLabels: Record<string, string> = {
                       <div class="flex items-center gap-2 shrink-0">
                         <input
                           v-if="localScores[`round${rIdx + 1}`]?.[tIdx]"
-                          v-model.number="localScores[`round${rIdx + 1}`][tIdx].score"
+                          v-model.number="localScores[`round${rIdx + 1}`]![tIdx]!.score"
                           type="number"
                           min="0"
                           max="10"
