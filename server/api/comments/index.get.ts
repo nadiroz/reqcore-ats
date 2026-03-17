@@ -1,10 +1,11 @@
-import { eq, and, desc } from 'drizzle-orm'
-import { comment, user } from '../../database/schema'
+import { eq, and, desc, inArray, or } from 'drizzle-orm'
+import { comment, user, application } from '../../database/schema'
 import { commentQuerySchema } from '../../utils/schemas/comment'
 
 /**
  * GET /api/comments
  * List comments for a specific target (candidate, application, or job).
+ * Supports candidateId filter to aggregate comments across all of a candidate's applications.
  * Requires comment:read permission.
  */
 export default defineEventHandler(async (event) => {
@@ -14,11 +15,30 @@ export default defineEventHandler(async (event) => {
   const query = await getValidatedQuery(event, commentQuerySchema.parse)
   const offset = (query.page - 1) * query.limit
 
-  const where = and(
-    eq(comment.organizationId, orgId),
-    eq(comment.targetType, query.targetType),
-    eq(comment.targetId, query.targetId),
-  )
+  let where
+  if ('candidateId' in query && query.candidateId) {
+    // Aggregate: all comments on this candidate + all their applications
+    const appIds = await db
+      .select({ id: application.id })
+      .from(application)
+      .where(and(eq(application.candidateId, query.candidateId), eq(application.organizationId, orgId)))
+
+    const ids = appIds.map(a => a.id)
+
+    where = and(
+      eq(comment.organizationId, orgId),
+      or(
+        and(eq(comment.targetType, 'candidate'), eq(comment.targetId, query.candidateId)),
+        ...(ids.length ? [and(eq(comment.targetType, 'application'), inArray(comment.targetId, ids))] : []),
+      ),
+    )
+  } else {
+    where = and(
+      eq(comment.organizationId, orgId),
+      eq(comment.targetType, query.targetType),
+      eq(comment.targetId, query.targetId),
+    )
+  }
 
   const [data, total] = await Promise.all([
     db

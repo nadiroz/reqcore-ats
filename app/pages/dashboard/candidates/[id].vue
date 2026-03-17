@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ArrowLeft, Pencil, Trash2, Mail, Phone, Calendar, Clock, Briefcase, FileText, Plus, Upload, Download, Eye, X, AlertTriangle, Github, Linkedin, Globe } from 'lucide-vue-next'
+import { ArrowLeft, Pencil, Trash2, Mail, Phone, Calendar, Briefcase, FileText, Plus, Upload, Download, Eye, X, AlertTriangle, Github, Linkedin, Globe, MessageSquare, History } from 'lucide-vue-next'
 import { z } from 'zod'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
+import type { AssessmentDecision } from '~~/shared/assessment-types'
 
 definePageMeta({
   layout: 'dashboard',
@@ -13,20 +14,79 @@ const candidateId = route.params.id as string
 const { handlePreviewReadOnlyError } = usePreviewReadOnly()
 
 const { candidate, status: fetchStatus, error, refresh, updateCandidate, deleteCandidate } = useCandidate(candidateId)
+const { stageLabel, stageColorClass } = usePipelineConfig()
 
 useSeoMeta({
   title: computed(() =>
     candidate.value
-      ? `${candidate.value.firstName} ${candidate.value.lastName} — Reqcore`
-      : 'Candidate — Reqcore',
+      ? `${candidate.value.firstName} ${candidate.value.lastName} - Reqcore`
+      : 'Candidate - Reqcore',
   ),
 })
+
+// ─────────────────────────────────────────────
+// Toast error (replaces alert())
+// ─────────────────────────────────────────────
+
+const toastError = ref<string | null>(null)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showToast(msg: string) {
+  toastError.value = msg
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toastError.value = null }, 6000)
+}
+
+function dismissToast() {
+  toastError.value = null
+  if (toastTimer) clearTimeout(toastTimer)
+}
 
 // ─────────────────────────────────────────────
 // Tabs
 // ─────────────────────────────────────────────
 
-const activeTab = ref<'applications' | 'documents'>('applications')
+const activeTab = ref<'applications' | 'documents' | 'activity'>('applications')
+
+// ─────────────────────────────────────────────
+// Display helpers
+// ─────────────────────────────────────────────
+
+function getCandidateInitials(firstName: string, lastName: string): string {
+  return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase()
+}
+
+const firstAppliedDate = computed(() => {
+  const apps = candidate.value?.applications
+  if (!apps?.length) return null
+  const oldest = apps.reduce((a: any, b: any) =>
+    new Date(a.createdAt) < new Date(b.createdAt) ? a : b,
+  )
+  return new Date(oldest.createdAt).toLocaleDateString()
+})
+
+const documentTypeLabels: Record<string, string> = {
+  resume: 'Resume',
+  cover_letter: 'Cover Letter',
+  portfolio: 'Portfolio',
+  reference: 'Reference',
+  certificate: 'Certificate',
+  other: 'Other',
+}
+
+const decisionLabels: Record<string, string> = {
+  hire: 'Hire',
+  no_hire: 'No Hire',
+  borderline: 'Borderline',
+  pending: 'Pending',
+}
+
+const decisionClasses: Record<string, string> = {
+  hire: 'bg-success-50 text-success-700 dark:bg-success-950/50 dark:text-success-300',
+  no_hire: 'bg-danger-50 text-danger-700 dark:bg-danger-950/50 dark:text-danger-300',
+  borderline: 'bg-warning-50 text-warning-700 dark:bg-warning-950/50 dark:text-warning-300',
+  pending: 'bg-surface-100 text-surface-500 dark:bg-surface-800 dark:text-surface-400',
+}
 
 // ─────────────────────────────────────────────
 // Edit mode
@@ -93,7 +153,7 @@ async function handleSave() {
     if (err.statusCode === 409 || err.data?.statusCode === 409) {
       editErrors.value.email = message
     } else {
-      alert(message)
+      showToast(message)
     }
   } finally {
     isSaving.value = false
@@ -113,32 +173,10 @@ async function handleDelete() {
     await deleteCandidate()
   } catch (err: any) {
     if (handlePreviewReadOnlyError(err)) return
-    alert(err.data?.statusMessage ?? 'Failed to delete candidate')
+    showToast(err.data?.statusMessage ?? 'Failed to delete candidate')
     isDeleting.value = false
     showDeleteConfirm.value = false
   }
-}
-
-// ─────────────────────────────────────────────
-// Display helpers
-// ─────────────────────────────────────────────
-
-const applicationStatusClasses: Record<string, string> = {
-  new: 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-400',
-  screening: 'bg-info-50 text-info-700 dark:bg-info-950 dark:text-info-400',
-  interview: 'bg-warning-50 text-warning-700 dark:bg-warning-950 dark:text-warning-400',
-  offer: 'bg-success-50 text-success-700 dark:bg-success-950 dark:text-success-400',
-  hired: 'bg-success-100 text-success-800 dark:bg-success-900 dark:text-success-300',
-  rejected: 'bg-surface-100 text-surface-500 dark:bg-surface-800 dark:text-surface-400',
-}
-
-const documentTypeLabels: Record<string, string> = {
-  resume: 'Resume',
-  cover_letter: 'Cover Letter',
-  portfolio: 'Portfolio',
-  reference: 'Reference',
-  certificate: 'Certificate',
-  other: 'Other',
 }
 
 // ─────────────────────────────────────────────
@@ -176,6 +214,70 @@ async function submitAddLink() {
 }
 
 // ─────────────────────────────────────────────
+// Activity tab
+// ─────────────────────────────────────────────
+
+const activitySubTab = ref<'all' | 'comments' | 'history'>('all')
+
+const { data: commentsData } = useFetch<{ data: any[]; total: number }>('/api/comments', {
+  key: computed(() => `candidate-comments-${candidateId}`),
+  query: computed(() => ({ candidateId, page: 1, limit: 100 })),
+  headers: useRequestHeaders(['cookie']),
+})
+const activityComments = computed(() => commentsData.value?.data ?? [])
+
+const { data: activityLogData } = useFetch<{ data: any[]; total: number }>('/api/activity-log', {
+  key: computed(() => `candidate-activity-${candidateId}`),
+  query: computed(() => ({ candidateId, page: 1, limit: 100 })),
+  headers: useRequestHeaders(['cookie']),
+})
+const activityItems = computed(() => activityLogData.value?.data ?? [])
+
+type FeedItem =
+  | { kind: 'comment'; ts: string; data: any }
+  | { kind: 'history'; ts: string; data: any }
+
+const feedAll = computed((): FeedItem[] => {
+  const items: FeedItem[] = [
+    ...activityComments.value.map((c: any) => ({ kind: 'comment' as const, ts: c.createdAt, data: c })),
+    ...activityItems.value.map((a: any) => ({ kind: 'history' as const, ts: String(a.createdAt), data: a })),
+  ]
+  return items.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+})
+
+const feedFiltered = computed(() => {
+  const sub = activitySubTab.value
+  if (sub === 'comments') return feedAll.value.filter(i => i.kind === 'comment')
+  if (sub === 'history') return feedAll.value.filter(i => i.kind === 'history')
+  return feedAll.value
+})
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(dateStr).toLocaleDateString()
+}
+
+function formatActivityAction(action: string, metadata: Record<string, string> | null): string {
+  if (action === 'status_changed' && metadata?.from && metadata?.to) {
+    return `Moved ${stageLabel(metadata.from)} to ${stageLabel(metadata.to)}`
+  }
+  const labels: Record<string, string> = {
+    updated: 'Application updated',
+    created: 'Application created',
+    document_uploaded: 'Document uploaded',
+    interview_scheduled: 'Interview scheduled',
+  }
+  return labels[action] ?? action.replace(/_/g, ' ')
+}
+
+// ─────────────────────────────────────────────
 // Apply to job modal
 // ─────────────────────────────────────────────
 
@@ -199,7 +301,7 @@ function openScheduleInterview(app: { id: string; job: { title: string } }) {
 }
 
 // ─────────────────────────────────────────────
-// Documents — upload, download, delete
+// Documents
 // ─────────────────────────────────────────────
 
 const { uploadDocument, downloadDocument, getPreviewUrl, deleteDocument } = useDocuments()
@@ -211,20 +313,16 @@ const uploadError = ref<string | null>(null)
 const showDocDeleteConfirm = ref<string | null>(null)
 const isDeletingDoc = ref(false)
 
-// Preview state
 const showPreview = ref(false)
 const previewUrl = ref<string | null>(null)
 const previewFilename = ref('')
 const previewMimeType = ref('')
 const previewDocId = ref<string | null>(null)
-const isLoadingPreview = ref(false)
 const previewError = ref<string | null>(null)
 
-/** Whether the current preview file is a PDF (renderable in iframe) */
 const isPdfPreview = computed(() => previewMimeType.value === 'application/pdf')
 
 async function handlePreview(docId: string, mimeType?: string) {
-  // Only PDFs can be previewed inline — for DOC/DOCX, download directly
   if (mimeType && mimeType !== 'application/pdf') {
     await handleDownload(docId)
     return
@@ -234,12 +332,9 @@ async function handlePreview(docId: string, mimeType?: string) {
   showPreview.value = true
   previewDocId.value = docId
 
-  // Find the document name from the candidate data
   const doc = candidate.value?.documents?.find((d: any) => d.id === docId)
   previewFilename.value = doc?.originalFilename ?? 'Document'
   previewMimeType.value = doc?.mimeType ?? 'application/pdf'
-
-  // Use the API endpoint URL directly — server streams the PDF (same-origin)
   previewUrl.value = getPreviewUrl(docId)
 }
 
@@ -271,7 +366,6 @@ async function handleFileSelected(event: Event) {
     uploadError.value = msg
   } finally {
     isUploading.value = false
-    // Reset input so the same file can be re-selected
     input.value = ''
   }
 }
@@ -280,7 +374,7 @@ async function handleDownload(docId: string) {
   try {
     await downloadDocument(docId)
   } catch {
-    alert('Failed to download document')
+    showToast('Failed to download document')
   }
 }
 
@@ -291,18 +385,10 @@ async function handleDeleteDoc(docId: string) {
     showDocDeleteConfirm.value = null
   } catch (err: any) {
     if (handlePreviewReadOnlyError(err)) return
-    alert(err.data?.statusMessage ?? 'Failed to delete document')
+    showToast(err.data?.statusMessage ?? 'Failed to delete document')
   } finally {
     isDeletingDoc.value = false
   }
-}
-
-/** Format bytes into a human-readable string */
-function formatFileSize(bytes: number | null | undefined): string {
-  if (!bytes) return '—'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 </script>
 
@@ -315,6 +401,26 @@ function formatFileSize(bytes: number | null | undefined): string {
         { label: candidate ? `${candidate.firstName} ${candidate.lastName}` : '…' },
       ]" />
     </div>
+
+    <!-- Toast error -->
+    <Teleport to="body">
+      <Transition
+        enter-active-class="transition-all duration-300 ease-out"
+        leave-active-class="transition-all duration-200 ease-in"
+        enter-from-class="opacity-0 translate-y-2"
+        leave-to-class="opacity-0 translate-y-2"
+      >
+        <div
+          v-if="toastError"
+          class="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-lg border border-danger-200 dark:border-danger-800 bg-white dark:bg-surface-900 px-4 py-3 shadow-lg text-sm text-danger-700 dark:text-danger-400 max-w-md"
+        >
+          <span class="flex-1">{{ toastError }}</span>
+          <button class="shrink-0 text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 cursor-pointer" @click="dismissToast">
+            <X class="size-4" />
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- Loading -->
     <div v-if="fetchStatus === 'pending'" class="text-center py-12 text-surface-400">
@@ -334,168 +440,135 @@ function formatFileSize(bytes: number | null | undefined): string {
     <template v-else-if="candidate">
       <!-- VIEW MODE -->
       <div v-if="!isEditing">
-        <!-- Header -->
-        <div class="flex items-start justify-between gap-4 mb-6">
-          <div class="min-w-0">
-            <h1 class="text-2xl font-bold text-surface-900 dark:text-surface-50 truncate mb-1">
-              {{ candidate.firstName }} {{ candidate.lastName }}
-            </h1>
-            <div class="flex items-center gap-4 text-sm text-surface-500">
-              <a
-                :href="`mailto:${candidate.email}`"
-                target="_blank"
-                class="inline-flex items-center gap-1 hover:text-brand-600 dark:hover:text-brand-400 hover:underline cursor-pointer transition-colors"
-              >
-                <Mail class="size-3.5" />
-                {{ candidate.email }}
-              </a>
-              <span v-if="candidate.phone" class="inline-flex items-center gap-1">
-                <Phone class="size-3.5" />
-                {{ candidate.phone }}
-              </span>
+        <!-- Header card -->
+        <div class="rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5 mb-5">
+          <div class="flex items-start gap-4">
+            <!-- Avatar -->
+            <div class="size-14 shrink-0 rounded-full bg-brand-100 dark:bg-brand-900/40 flex items-center justify-center text-brand-700 dark:text-brand-300 font-semibold text-lg">
+              {{ getCandidateInitials(candidate.firstName, candidate.lastName) }}
             </div>
-          </div>
 
-          <div class="flex items-center gap-2 shrink-0">
-            <button
-              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-surface-300 dark:border-surface-700 px-3 py-1.5 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
-              @click="startEdit"
-            >
-              <Pencil class="size-3.5" />
-              Edit
-            </button>
-            <button
-              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-danger-300 dark:border-danger-700 px-3 py-1.5 text-sm font-medium text-danger-600 dark:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-950 transition-colors"
-              @click="showDeleteConfirm = true"
-            >
-              <Trash2 class="size-3.5" />
-              Delete
-            </button>
-          </div>
-        </div>
+            <!-- Info -->
+            <div class="min-w-0 flex-1">
+              <div class="flex items-start justify-between gap-3">
+                <h1 class="text-xl font-bold text-surface-900 dark:text-surface-50 truncate">
+                  {{ candidate.firstName }} {{ candidate.lastName }}
+                </h1>
+                <div class="flex items-center gap-2 shrink-0">
+                  <button
+                    class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-surface-300 dark:border-surface-700 px-2.5 py-1 text-xs font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+                    @click="startEdit"
+                  >
+                    <Pencil class="size-3" />
+                    Edit
+                  </button>
+                  <button
+                    class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-danger-300 dark:border-danger-700 px-2.5 py-1 text-xs font-medium text-danger-600 dark:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-950 transition-colors"
+                    @click="showDeleteConfirm = true"
+                  >
+                    <Trash2 class="size-3" />
+                  </button>
+                </div>
+              </div>
 
-        <!-- Contact details -->
-        <div class="rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5 mb-4">
-          <h2 class="text-sm font-semibold text-surface-700 dark:text-surface-200 mb-3">Details</h2>
-          <dl class="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <dt class="text-surface-400">Email</dt>
-              <dd class="text-surface-700 dark:text-surface-200 font-medium">
+              <!-- Contact row -->
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-sm text-surface-500">
                 <a
                   :href="`mailto:${candidate.email}`"
                   target="_blank"
-                  class="hover:text-brand-600 dark:hover:text-brand-400 hover:underline cursor-pointer transition-colors"
-                >{{ candidate.email }}</a>
-              </dd>
-            </div>
-            <div>
-              <dt class="text-surface-400">Phone</dt>
-              <dd class="text-surface-700 dark:text-surface-200 font-medium">
-                {{ candidate.phone || '—' }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-surface-400 inline-flex items-center gap-1">
-                <Calendar class="size-3.5" />
-                Created
-              </dt>
-              <dd class="text-surface-700 dark:text-surface-200 font-medium">
-                {{ new Date(candidate.createdAt).toLocaleDateString() }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-surface-400 inline-flex items-center gap-1">
-                <Clock class="size-3.5" />
-                Updated
-              </dt>
-              <dd class="text-surface-700 dark:text-surface-200 font-medium">
-                {{ new Date(candidate.updatedAt).toLocaleDateString() }}
-              </dd>
-            </div>
-          </dl>
-        </div>
+                  class="inline-flex items-center gap-1 hover:text-brand-600 dark:hover:text-brand-400 hover:underline cursor-pointer transition-colors"
+                >
+                  <Mail class="size-3.5" />
+                  {{ candidate.email }}
+                </a>
+                <span v-if="candidate.phone" class="inline-flex items-center gap-1">
+                  <Phone class="size-3.5" />
+                  {{ candidate.phone }}
+                </span>
+              </div>
 
-        <!-- Links -->
-        <div class="rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5 mb-4">
-          <div class="flex items-center justify-between mb-3">
-            <h2 class="text-sm font-semibold text-surface-700 dark:text-surface-200">Links</h2>
-            <button
-              class="inline-flex cursor-pointer items-center gap-1 text-xs text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 font-medium transition-colors"
-              @click="showAddLink = !showAddLink"
-            >
-              <Plus class="size-3" />
-              Add link
-            </button>
-          </div>
+              <!-- Links row -->
+              <div class="flex flex-wrap items-center gap-2 mt-2">
+                <template v-if="candidateLinks.length">
+                  <a
+                    v-for="link in candidateLinks"
+                    :key="link.id"
+                    :href="link.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-1 rounded-full border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 px-2 py-0.5 text-xs text-surface-600 dark:text-surface-400 hover:text-brand-600 dark:hover:text-brand-400 hover:border-brand-300 dark:hover:border-brand-700 transition-colors group"
+                    :title="link.url"
+                  >
+                    <component
+                      :is="link.type === 'github' ? Github : link.type === 'linkedin' ? Linkedin : Globe"
+                      class="size-3 shrink-0"
+                    />
+                    <span class="max-w-[120px] truncate">{{ link.label || link.url.replace(/^https?:\/\//, '').split('/')[0] }}</span>
+                    <button
+                      class="ml-0.5 text-surface-300 hover:text-danger-500 dark:text-surface-600 dark:hover:text-danger-400 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                      title="Remove"
+                      @click.prevent="removeLink(link.id)"
+                    >
+                      <X class="size-2.5" />
+                    </button>
+                  </a>
+                </template>
+                <button
+                  class="inline-flex cursor-pointer items-center gap-0.5 text-xs text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 font-medium transition-colors"
+                  @click="showAddLink = !showAddLink"
+                >
+                  <Plus class="size-3" />
+                  Add link
+                </button>
+              </div>
 
-          <!-- Existing links -->
-          <div v-if="linksLoading && !candidateLinks.length" class="text-xs text-surface-400">Loading…</div>
-          <div v-else-if="candidateLinks.length" class="flex flex-wrap gap-2 mb-3">
-            <div
-              v-for="link in candidateLinks"
-              :key="link.id"
-              class="inline-flex items-center gap-1.5 rounded-full border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 px-3 py-1 text-xs text-surface-700 dark:text-surface-300 group"
-            >
-              <component
-                :is="link.type === 'github' ? Github : link.type === 'linkedin' ? Linkedin : Globe"
-                class="size-3.5 shrink-0 text-surface-500 dark:text-surface-400"
-              />
-              <a
-                :href="link.url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="max-w-[160px] truncate hover:text-brand-600 dark:hover:text-brand-400 hover:underline transition-colors"
-                :title="link.url"
-              >
-                {{ link.label || link.url.replace(/^https?:\/\//, '').split('/')[0] }}
-              </a>
-              <button
-                class="ml-0.5 cursor-pointer text-surface-300 hover:text-danger-500 dark:text-surface-600 dark:hover:text-danger-400 transition-colors opacity-0 group-hover:opacity-100"
-                title="Remove link"
-                @click="removeLink(link.id)"
-              >
-                <X class="size-3" />
-              </button>
-            </div>
-          </div>
-          <p v-else-if="!showAddLink" class="text-xs text-surface-400 italic">No links yet.</p>
+              <!-- Add link form (inline) -->
+              <div v-if="showAddLink" class="mt-2 space-y-2">
+                <div class="flex gap-2">
+                  <select
+                    v-model="newLinkType"
+                    class="rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 px-2 py-1 text-xs text-surface-700 dark:text-surface-300 focus:outline-none focus:ring-2 focus:ring-brand-500 shrink-0"
+                  >
+                    <option value="github">GitHub</option>
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="portfolio">Portfolio</option>
+                    <option value="website">Website</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <input
+                    v-model="newLinkUrl"
+                    type="url"
+                    placeholder="https://…"
+                    class="flex-1 min-w-0 rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 px-2.5 py-1 text-xs text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    @keydown.enter.prevent="submitAddLink"
+                  />
+                </div>
+                <p v-if="addLinkError" class="text-xs text-danger-600 dark:text-danger-400">{{ addLinkError }}</p>
+                <div class="flex gap-2">
+                  <button
+                    :disabled="isAddingLink || !newLinkUrl.trim()"
+                    class="cursor-pointer rounded-lg bg-brand-600 px-3 py-1 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    @click="submitAddLink"
+                  >
+                    {{ isAddingLink ? 'Adding…' : 'Add' }}
+                  </button>
+                  <button
+                    class="cursor-pointer rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1 text-xs font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+                    @click="showAddLink = false; addLinkError = null"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
 
-          <!-- Add link form -->
-          <div v-if="showAddLink" class="mt-2 space-y-2">
-            <div class="flex gap-2">
-              <select
-                v-model="newLinkType"
-                class="rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 px-2 py-1.5 text-xs text-surface-700 dark:text-surface-300 focus:outline-none focus:ring-2 focus:ring-brand-500 shrink-0"
-              >
-                <option value="github">GitHub</option>
-                <option value="linkedin">LinkedIn</option>
-                <option value="portfolio">Portfolio</option>
-                <option value="website">Website</option>
-                <option value="other">Other</option>
-              </select>
-              <input
-                v-model="newLinkUrl"
-                type="url"
-                placeholder="https://…"
-                class="flex-1 min-w-0 rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 px-2.5 py-1.5 text-xs text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                @keydown.enter.prevent="submitAddLink"
-              />
-            </div>
-            <p v-if="addLinkError" class="text-xs text-danger-600 dark:text-danger-400">{{ addLinkError }}</p>
-            <div class="flex gap-2">
-              <button
-                :disabled="isAddingLink || !newLinkUrl.trim()"
-                class="cursor-pointer rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                @click="submitAddLink"
-              >
-                {{ isAddingLink ? 'Adding…' : 'Add' }}
-              </button>
-              <button
-                class="cursor-pointer rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-xs font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
-                @click="showAddLink = false; addLinkError = null"
-              >
-                Cancel
-              </button>
+              <!-- Quick stats -->
+              <div class="flex items-center gap-3 mt-3 text-xs text-surface-400">
+                <span>{{ candidate.applications?.length ?? 0 }} application{{ (candidate.applications?.length ?? 0) !== 1 ? 's' : '' }}</span>
+                <span v-if="firstAppliedDate" class="inline-flex items-center gap-1">
+                  <Calendar class="size-3" />
+                  First applied {{ firstAppliedDate }}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -504,32 +577,24 @@ function formatFileSize(bytes: number | null | undefined): string {
         <div class="border-b border-surface-200 dark:border-surface-800 mb-4">
           <div class="flex gap-1">
             <button
-              class="cursor-pointer px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
-              :class="activeTab === 'applications'
+              v-for="tab in (['applications', 'documents', 'activity'] as const)"
+              :key="tab"
+              class="cursor-pointer px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px capitalize"
+              :class="activeTab === tab
                 ? 'border-brand-600 text-brand-600'
                 : 'border-transparent text-surface-500 hover:text-surface-700 hover:border-surface-300 dark:hover:text-surface-300'"
-              @click="activeTab = 'applications'"
+              @click="activeTab = tab"
             >
-              Applications ({{ candidate.applications?.length ?? 0 }})
-            </button>
-            <button
-              class="cursor-pointer px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
-              :class="activeTab === 'documents'
-                ? 'border-brand-600 text-brand-600'
-                : 'border-transparent text-surface-500 hover:text-surface-700 hover:border-surface-300 dark:hover:text-surface-300'"
-              @click="activeTab = 'documents'"
-            >
-              Documents ({{ candidate.documents?.length ?? 0 }})
+              {{ tab === 'applications' ? `Applications (${candidate.applications?.length ?? 0})` : tab === 'documents' ? `Documents (${candidate.documents?.length ?? 0})` : 'Activity' }}
             </button>
           </div>
         </div>
 
-        <!-- Applications tab -->
+        <!-- ─── Applications tab ─── -->
         <div v-if="activeTab === 'applications'">
-          <!-- Apply to Job button -->
           <div class="flex justify-end mb-3">
             <button
-              class="inline-flex items-center gap-1.5 rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+              class="inline-flex items-center gap-1.5 rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors cursor-pointer"
               @click="showApplyModal = true"
             >
               <Plus class="size-3.5" />
@@ -546,39 +611,52 @@ function formatFileSize(bytes: number | null | undefined): string {
           </div>
 
           <div v-else class="space-y-2">
-            <div
+            <NuxtLink
               v-for="app in candidate.applications"
               :key="app.id"
+              :to="$localePath(`/dashboard/applications/${app.id}`)"
               class="flex items-center justify-between rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 px-4 py-3 hover:border-surface-300 dark:hover:border-surface-700 hover:shadow-sm transition-all group"
             >
-              <NuxtLink
-                :to="$localePath(`/dashboard/applications/${app.id}`)"
-                class="min-w-0 flex-1 block"
-              >
+              <div class="min-w-0 flex-1">
                 <h4 class="text-sm font-semibold text-surface-900 dark:text-surface-100 group-hover:text-brand-600 transition-colors truncate">
                   {{ app.job.title }}
                 </h4>
-                <span class="text-xs text-surface-400">
-                  Applied {{ new Date(app.createdAt).toLocaleDateString() }}
-                </span>
-              </NuxtLink>
+                <div class="flex items-center gap-2 mt-0.5">
+                  <span class="text-xs text-surface-400">
+                    Applied {{ new Date(app.createdAt).toLocaleDateString() }}
+                  </span>
+                  <template v-if="app.assessment?.overallScore != null">
+                    <span class="text-xs font-medium text-surface-600 dark:text-surface-300">
+                      {{ app.assessment.overallScore.toFixed(1) }} / 10
+                    </span>
+                  </template>
+                  <template v-if="app.assessment?.decision && app.assessment.decision !== 'pending'">
+                    <span
+                      class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset ring-current/10"
+                      :class="decisionClasses[app.assessment.decision as AssessmentDecision] ?? decisionClasses.pending"
+                    >
+                      {{ decisionLabels[app.assessment.decision as AssessmentDecision] ?? app.assessment.decision }}
+                    </span>
+                  </template>
+                </div>
+              </div>
               <div class="flex items-center gap-2 shrink-0 ml-3">
                 <button
                   class="inline-flex items-center gap-1 rounded-lg border border-surface-200 dark:border-surface-700 px-2 py-1 text-xs font-medium text-surface-600 dark:text-surface-400 hover:border-brand-400 dark:hover:border-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/30 hover:text-brand-700 dark:hover:text-brand-300 transition-all cursor-pointer"
                   title="Schedule Interview"
-                  @click="openScheduleInterview(app)"
+                  @click.prevent="openScheduleInterview(app)"
                 >
                   <Calendar class="size-3" />
                   Schedule
                 </button>
                 <span
-                  class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium shrink-0"
-                  :class="applicationStatusClasses[app.status] ?? 'bg-surface-100 text-surface-600'"
+                  class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ring-current/10 shrink-0"
+                  :class="stageColorClass(app.status, 'badge')"
                 >
-                  {{ app.status }}
+                  {{ stageLabel(app.status) }}
                 </span>
               </div>
-            </div>
+            </NuxtLink>
           </div>
         </div>
 
@@ -600,9 +678,8 @@ function formatFileSize(bytes: number | null | undefined): string {
           @scheduled="showInterviewSidebar = false"
         />
 
-        <!-- Documents tab -->
+        <!-- ─── Documents tab ─── -->
         <div v-if="activeTab === 'documents'">
-          <!-- Hidden file input -->
           <input
             ref="fileInput"
             type="file"
@@ -611,12 +688,10 @@ function formatFileSize(bytes: number | null | undefined): string {
             @change="handleFileSelected"
           />
 
-          <!-- ── Inline PDF preview (replaces document list when active) ── -->
           <template v-if="showPreview">
-            <!-- Preview toolbar -->
             <div class="flex items-center justify-between mb-3">
               <button
-                class="inline-flex items-center gap-1.5 text-sm font-medium text-surface-600 dark:text-surface-300 hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
+                class="inline-flex items-center gap-1.5 text-sm font-medium text-surface-600 dark:text-surface-300 hover:text-brand-600 dark:hover:text-brand-400 transition-colors cursor-pointer"
                 @click="closePreview"
               >
                 <ArrowLeft class="size-3.5" />
@@ -625,7 +700,7 @@ function formatFileSize(bytes: number | null | undefined): string {
               <div class="flex items-center gap-1">
                 <button
                   v-if="previewDocId"
-                  class="rounded-lg p-1.5 text-surface-400 hover:text-brand-600 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                  class="rounded-lg p-1.5 text-surface-400 hover:text-brand-600 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer"
                   title="Download"
                   @click="handleDownload(previewDocId!)"
                 >
@@ -634,7 +709,6 @@ function formatFileSize(bytes: number | null | undefined): string {
               </div>
             </div>
 
-            <!-- Filename -->
             <div v-if="previewFilename" class="flex items-center gap-2 mb-3">
               <FileText class="size-4 text-surface-400 shrink-0" />
               <span class="text-sm font-medium text-surface-700 dark:text-surface-200 truncate">
@@ -642,7 +716,6 @@ function formatFileSize(bytes: number | null | undefined): string {
               </span>
             </div>
 
-            <!-- Error state -->
             <div
               v-if="previewError"
               class="rounded-lg border border-danger-200 dark:border-danger-800 bg-danger-50 dark:bg-danger-950 p-6 text-center"
@@ -650,14 +723,13 @@ function formatFileSize(bytes: number | null | undefined): string {
               <AlertTriangle class="size-8 text-danger-400 mx-auto mb-2" />
               <p class="text-sm text-danger-700 dark:text-danger-400">{{ previewError }}</p>
               <button
-                class="mt-3 text-sm text-brand-600 hover:text-brand-700 dark:text-brand-400 font-medium"
+                class="mt-3 text-sm text-brand-600 hover:text-brand-700 dark:text-brand-400 font-medium cursor-pointer"
                 @click="closePreview"
               >
                 Go back
               </button>
             </div>
 
-            <!-- PDF iframe — same-origin, server streams the bytes -->
             <iframe
               v-else-if="previewUrl && isPdfPreview"
               :src="previewUrl"
@@ -667,9 +739,7 @@ function formatFileSize(bytes: number | null | undefined): string {
             />
           </template>
 
-          <!-- ── Document list (normal state) ── -->
           <template v-else>
-            <!-- Upload controls -->
             <div class="flex items-center justify-between mb-3">
               <div class="flex items-center gap-2">
                 <select
@@ -686,7 +756,7 @@ function formatFileSize(bytes: number | null | undefined): string {
               </div>
               <button
                 :disabled="isUploading"
-                class="inline-flex items-center gap-1.5 rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                class="inline-flex items-center gap-1.5 rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 @click="triggerFileSelect"
               >
                 <Upload class="size-3.5" />
@@ -694,16 +764,14 @@ function formatFileSize(bytes: number | null | undefined): string {
               </button>
             </div>
 
-            <!-- Upload error -->
             <div
               v-if="uploadError"
               class="rounded-lg border border-danger-200 dark:border-danger-800 bg-danger-50 dark:bg-danger-950 p-3 text-sm text-danger-700 dark:text-danger-400 mb-3"
             >
               {{ uploadError }}
-              <button class="underline ml-1" @click="uploadError = null">Dismiss</button>
+              <button class="underline ml-1 cursor-pointer" @click="uploadError = null">Dismiss</button>
             </div>
 
-            <!-- Empty state -->
             <div
               v-if="!candidate.documents?.length"
               class="rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-8 text-center"
@@ -711,11 +779,10 @@ function formatFileSize(bytes: number | null | undefined): string {
               <FileText class="size-8 text-surface-300 dark:text-surface-600 mx-auto mb-2" />
               <p class="text-sm text-surface-500 dark:text-surface-400">No documents yet.</p>
               <p class="text-xs text-surface-400 mt-1">
-                Upload a resume, cover letter, or other document (PDF, DOC, DOCX — max 10 MB).
+                Upload a resume, cover letter, or other document (PDF, DOC, DOCX, max 10 MB).
               </p>
             </div>
 
-            <!-- Document list -->
             <div v-else class="space-y-2">
               <div
                 v-for="doc in candidate.documents"
@@ -740,21 +807,21 @@ function formatFileSize(bytes: number | null | undefined): string {
                 <div class="flex items-center gap-1 shrink-0" @click.stop>
                   <button
                     v-if="doc.mimeType === 'application/pdf'"
-                    class="rounded-lg p-1.5 text-surface-400 hover:text-brand-600 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                    class="rounded-lg p-1.5 text-surface-400 hover:text-brand-600 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer"
                     title="Preview PDF"
                     @click="handlePreview(doc.id, doc.mimeType)"
                   >
                     <Eye class="size-4" />
                   </button>
                   <button
-                    class="rounded-lg p-1.5 text-surface-400 hover:text-brand-600 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                    class="rounded-lg p-1.5 text-surface-400 hover:text-brand-600 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer"
                     title="Download"
                     @click="handleDownload(doc.id)"
                   >
                     <Download class="size-4" />
                   </button>
                   <button
-                    class="rounded-lg p-1.5 text-surface-400 hover:text-danger-600 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                    class="rounded-lg p-1.5 text-surface-400 hover:text-danger-600 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer"
                     title="Delete"
                     @click="showDocDeleteConfirm = doc.id"
                   >
@@ -777,14 +844,14 @@ function formatFileSize(bytes: number | null | undefined): string {
                 <div class="flex justify-end gap-2">
                   <button
                     :disabled="isDeletingDoc"
-                    class="rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+                    class="rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors cursor-pointer"
                     @click="showDocDeleteConfirm = null"
                   >
                     Cancel
                   </button>
                   <button
                     :disabled="isDeletingDoc"
-                    class="rounded-lg bg-danger-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-danger-700 disabled:opacity-50 transition-colors"
+                    class="rounded-lg bg-danger-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-danger-700 disabled:opacity-50 transition-colors cursor-pointer"
                     @click="handleDeleteDoc(showDocDeleteConfirm!)"
                   >
                     {{ isDeletingDoc ? 'Deleting…' : 'Delete' }}
@@ -794,6 +861,74 @@ function formatFileSize(bytes: number | null | undefined): string {
             </div>
           </Teleport>
         </div>
+
+        <!-- ─── Activity tab ─── -->
+        <div v-if="activeTab === 'activity'">
+          <!-- Sub-tabs -->
+          <div class="flex gap-1 mb-4">
+            <button
+              v-for="sub in (['all', 'comments', 'history'] as const)"
+              :key="sub"
+              class="cursor-pointer rounded-lg px-3 py-1 text-xs font-medium transition-colors capitalize"
+              :class="activitySubTab === sub
+                ? 'bg-brand-50 text-brand-700 dark:bg-brand-950/50 dark:text-brand-300'
+                : 'text-surface-500 hover:bg-surface-100 dark:hover:bg-surface-800'"
+              @click="activitySubTab = sub"
+            >
+              {{ sub }}
+            </button>
+          </div>
+
+          <!-- Feed -->
+          <div v-if="!feedFiltered.length" class="rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-8 text-center">
+            <History class="size-8 text-surface-300 dark:text-surface-600 mx-auto mb-2" />
+            <p class="text-sm text-surface-500 dark:text-surface-400">No activity yet.</p>
+          </div>
+
+          <div v-else class="space-y-3">
+            <div
+              v-for="(item, idx) in feedFiltered"
+              :key="idx"
+              class="flex gap-3"
+            >
+              <!-- Icon -->
+              <div class="shrink-0 mt-0.5">
+                <div
+                  v-if="item.kind === 'comment'"
+                  class="size-6 rounded-full bg-brand-100 dark:bg-brand-900/40 flex items-center justify-center"
+                >
+                  <MessageSquare class="size-3 text-brand-600 dark:text-brand-400" />
+                </div>
+                <div
+                  v-else
+                  class="size-6 rounded-full bg-surface-100 dark:bg-surface-800 flex items-center justify-center"
+                >
+                  <History class="size-3 text-surface-400" />
+                </div>
+              </div>
+
+              <!-- Content -->
+              <div class="min-w-0 flex-1">
+                <template v-if="item.kind === 'comment'">
+                  <div class="flex items-center gap-2 text-xs">
+                    <span class="font-medium text-surface-700 dark:text-surface-200">{{ item.data.authorName ?? item.data.authorEmail }}</span>
+                    <span class="text-surface-400">{{ timeAgo(item.ts) }}</span>
+                  </div>
+                  <p class="text-sm text-surface-600 dark:text-surface-300 mt-0.5 whitespace-pre-wrap">{{ item.data.body }}</p>
+                </template>
+                <template v-else>
+                  <div class="flex items-center gap-2 text-xs">
+                    <span class="font-medium text-surface-700 dark:text-surface-200">{{ item.data.actorName ?? item.data.actorEmail }}</span>
+                    <span class="text-surface-400">{{ timeAgo(item.ts) }}</span>
+                  </div>
+                  <p class="text-sm text-surface-500 dark:text-surface-400 mt-0.5">
+                    {{ formatActivityAction(item.data.action, item.data.metadata) }}
+                  </p>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- EDIT MODE -->
@@ -801,7 +936,6 @@ function formatFileSize(bytes: number | null | undefined): string {
         <h1 class="text-2xl font-bold text-surface-900 dark:text-surface-50 mb-6">Edit Candidate</h1>
 
         <form class="space-y-5" @submit.prevent="handleSave">
-          <!-- First Name -->
           <div>
             <label for="edit-firstName" class="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">
               First Name <span class="text-danger-500">*</span>
@@ -816,7 +950,6 @@ function formatFileSize(bytes: number | null | undefined): string {
             <p v-if="editErrors.firstName" class="mt-1 text-xs text-danger-600 dark:text-danger-400">{{ editErrors.firstName }}</p>
           </div>
 
-          <!-- Last Name -->
           <div>
             <label for="edit-lastName" class="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">
               Last Name <span class="text-danger-500">*</span>
@@ -831,7 +964,6 @@ function formatFileSize(bytes: number | null | undefined): string {
             <p v-if="editErrors.lastName" class="mt-1 text-xs text-danger-600 dark:text-danger-400">{{ editErrors.lastName }}</p>
           </div>
 
-          <!-- Email -->
           <div>
             <label for="edit-email" class="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">
               Email <span class="text-danger-500">*</span>
@@ -846,7 +978,6 @@ function formatFileSize(bytes: number | null | undefined): string {
             <p v-if="editErrors.email" class="mt-1 text-xs text-danger-600 dark:text-danger-400">{{ editErrors.email }}</p>
           </div>
 
-          <!-- Phone -->
           <div>
             <label for="edit-phone" class="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">
               Phone
@@ -859,18 +990,17 @@ function formatFileSize(bytes: number | null | undefined): string {
             />
           </div>
 
-          <!-- Actions -->
           <div class="flex items-center gap-3 pt-2">
             <button
               type="submit"
               :disabled="isSaving"
-              class="inline-flex items-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              class="inline-flex items-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
             >
               {{ isSaving ? 'Saving…' : 'Save Changes' }}
             </button>
             <button
               type="button"
-              class="rounded-lg border border-surface-300 dark:border-surface-700 px-4 py-2 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+              class="rounded-lg border border-surface-300 dark:border-surface-700 px-4 py-2 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors cursor-pointer"
               @click="cancelEdit"
             >
               Cancel
@@ -892,14 +1022,14 @@ function formatFileSize(bytes: number | null | undefined): string {
             <div class="flex justify-end gap-2">
               <button
                 :disabled="isDeleting"
-                class="rounded-lg border border-surface-300 dark:border-surface-700 px-3 py-1.5 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+                class="rounded-lg border border-surface-300 dark:border-surface-700 px-3 py-1.5 text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors cursor-pointer"
                 @click="showDeleteConfirm = false"
               >
                 Cancel
               </button>
               <button
                 :disabled="isDeleting"
-                class="rounded-lg bg-danger-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-danger-700 disabled:opacity-50 transition-colors"
+                class="rounded-lg bg-danger-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-danger-700 disabled:opacity-50 transition-colors cursor-pointer"
                 @click="handleDelete"
               >
                 {{ isDeleting ? 'Deleting…' : 'Delete' }}

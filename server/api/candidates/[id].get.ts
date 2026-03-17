@@ -12,10 +12,13 @@ export default defineEventHandler(async (event) => {
     where: and(eq(candidate.id, id), eq(candidate.organizationId, orgId)),
     with: {
       applications: {
-        columns: { id: true, status: true, createdAt: true },
+        columns: { id: true, status: true, score: true, createdAt: true },
         with: {
           job: {
             columns: { id: true, title: true },
+          },
+          assessment: {
+            columns: { overallScore: true, decision: true, status: true },
           },
         },
         orderBy: (application, { desc }) => [desc(application.createdAt)],
