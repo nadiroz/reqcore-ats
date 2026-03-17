@@ -15,6 +15,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Categories: **Add
 
 ---
 
+## UX Overhaul and Infrastructure Foundation (2026-03-17)
+
+### Added (Wave I0: UX Overhaul)
+
+- **kanban:** Full board layout with all stage columns visible and slide-in detail panel (replaces 3-panel layout)
+- **kanban:** Pipeline stage bar with connector lines and gate stage diamond nodes (Almanac/Coda pattern)
+- **kanban:** Summary card with sticky candidate info, assessment status, and inline transition actions
+- **kanban:** Chronological timeline replacing fake scroll-to-section tabs (filter chips: All, Comments, Docs, Interviews, History)
+- **components:** Extracted 10+ focused components from monolithic Kanban page (CandidateCard, PipelineStageBar, CandidateSummaryCard, CandidateTimeline, TimelineItem, TransitionModal, InterviewScheduler, CommentInput, StageColorBadge, EmptyState)
+- **components:** Extracted components from application detail and candidate pages (ApplicationHeader, ApplicationSidebar, CandidateProfileHeader, CandidateApplicationCard, CandidateActivityFeed)
+- **command palette:** Cmd+K search overlay for jobs, candidates, applications, and quick actions
+- **keyboard:** Global keyboard shortcuts composable (Cmd+K, Escape, j/k navigation, Enter to open)
+- **dashboard:** Action-focused dashboard with pending approvals, new applications, upcoming interviews, and "needs attention" feed
+- **assessment:** Dedicated assessment workflow page with step indicator (Send, Submitted, Evaluate, Decide)
+- **nav:** AppTopBar restructured (settings/updates/color mode moved to avatar dropdown, Cmd+K search trigger added)
+- **docs:** User journeys documentation for 5 core workflows
+- **docs:** CHANGELOG.md with Phase 2 summary
+
+### Changed (Wave I0: UX Overhaul)
+
+- **kanban:** Transition actions moved from sticky top bar into summary card (primary "Advance" button + dropdown)
+- **kanban:** Keyboard hint indicators removed from top bar (discoverable via `?` help overlay)
+- **nav:** "New Job" button removed from global nav (lives on Jobs list page only)
+- **nav:** "Settings" removed from main nav (moved to avatar dropdown)
+
+### Added (Wave I: Infrastructure Foundation)
+
+- **histoire:** Component story infrastructure with Vue + Nuxt plugins, 4 core component stories (CandidateCard, PipelineStageBar, TransitionModal, CommandPalette)
+- **notifications:** `notification` table with user/org indexes (migration 0020)
+- **notifications:** Full notification API (list, unread count, mark read, mark all read)
+- **notifications:** `useNotifications` composable with 30-second polling and optimistic UI
+- **notifications:** `createNotification` server helper for in-app notification creation
+- **notifications:** General notification bell in AppTopBar (replaces approval-only bell)
+- **novu:** Optional Novu Docker services (novu-api, novu-worker, novu-redis) under `profiles: [novu]`
+- **novu:** Graceful Novu client (`server/lib/novu.ts`) with dynamic import and null fallback when not configured
+
+### Database Migrations
+
+- **0020:** `notification` table with indexes on `(user_id, read_at)` and `(organization_id, user_id)`
+
+---
+
 ## Pipeline, Assessments, and Hiring Workflow (2026-03-10 to 2026-03-17)
 
 ### Added

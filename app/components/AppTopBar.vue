@@ -105,26 +105,33 @@ const { data: feedbackConfig } = useFetch('/api/feedback/config', {
 const isFeedbackEnabled = computed(() => feedbackConfig.value?.enabled === true)
 
 // ─────────────────────────────────────────────
-// Pending approval requests (notification bell)
+// Notifications (bell)
 // ─────────────────────────────────────────────
 
-const { data: pendingApprovalsData } = useFetch<{ data: any[]; total: number }>('/api/approval-requests', {
-  key: 'pending-approvals',
-  query: { status: 'pending' },
-  headers: useRequestHeaders(['cookie']),
-})
-const pendingApprovalCount = computed(() => pendingApprovalsData.value?.total ?? 0)
-const showApprovalDropdown = ref(false)
-const approvalDropdownRef = useTemplateRef<HTMLElement>('approvalDropdownRoot')
+const {
+  notifications,
+  unreadCount,
+  fetchNotifications,
+  markRead,
+  markAllRead,
+} = useNotifications()
 
-function onClickOutsideApprovals(e: MouseEvent) {
-  if (approvalDropdownRef.value && !approvalDropdownRef.value.contains(e.target as Node)) {
-    showApprovalDropdown.value = false
+const showNotificationDropdown = ref(false)
+const notificationDropdownRef = useTemplateRef<HTMLElement>('notificationDropdownRoot')
+
+function onClickOutsideNotifications(e: MouseEvent) {
+  if (notificationDropdownRef.value && !notificationDropdownRef.value.contains(e.target as Node)) {
+    showNotificationDropdown.value = false
   }
 }
 
-onMounted(() => document.addEventListener('click', onClickOutsideApprovals))
-onUnmounted(() => document.removeEventListener('click', onClickOutsideApprovals))
+// Fetch full list when dropdown opens
+watch(showNotificationDropdown, (val: boolean) => {
+  if (val) fetchNotifications()
+})
+
+onMounted(() => document.addEventListener('click', onClickOutsideNotifications))
+onUnmounted(() => document.removeEventListener('click', onClickOutsideNotifications))
 
 const jobTabs = computed(() => {
   if (!activeJobId.value) return []
@@ -164,7 +171,7 @@ watch(() => route.path, () => {
   showUserMenu.value = false
   showMobileMenu.value = false
   showGetStartedMenu.value = false
-  showApprovalDropdown.value = false
+  showNotificationDropdown.value = false
 })
 
 // Close user menu on outside click
@@ -296,18 +303,18 @@ onUnmounted(() => {
           </button>
 
           <!-- Notification bell -->
-          <div ref="approvalDropdownRoot" class="relative">
+          <div ref="notificationDropdownRoot" class="relative">
             <button
               class="relative flex items-center justify-center size-8 rounded-lg text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800 transition-all duration-200 cursor-pointer border-0 bg-transparent"
-              title="Pending approvals"
-              @click="showApprovalDropdown = !showApprovalDropdown"
+              title="Notifications"
+              @click="showNotificationDropdown = !showNotificationDropdown"
             >
               <Bell class="size-4" />
               <span
-                v-if="pendingApprovalCount > 0"
+                v-if="unreadCount > 0"
                 class="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-danger-500 text-[9px] font-bold text-white ring-2 ring-white dark:ring-surface-900"
               >
-                {{ pendingApprovalCount > 9 ? '9+' : pendingApprovalCount }}
+                {{ unreadCount > 9 ? '9+' : unreadCount }}
               </span>
             </button>
 
@@ -320,28 +327,45 @@ onUnmounted(() => {
               leave-to-class="opacity-0 scale-95 -translate-y-1"
             >
               <div
-                v-if="showApprovalDropdown"
+                v-if="showNotificationDropdown"
                 class="absolute right-0 top-[calc(100%+6px)] w-80 rounded-xl border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-900 shadow-xl shadow-surface-900/8 dark:shadow-surface-950/30 overflow-hidden"
               >
-                <div class="px-4 py-3 border-b border-surface-100 dark:border-surface-800">
-                  <p class="text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">Pending Approvals</p>
+                <div class="px-4 py-3 border-b border-surface-100 dark:border-surface-800 flex items-center justify-between">
+                  <p class="text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">Notifications</p>
+                  <button
+                    v-if="unreadCount > 0"
+                    class="text-[11px] font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 cursor-pointer border-0 bg-transparent"
+                    @click="markAllRead()"
+                  >
+                    Mark all read
+                  </button>
                 </div>
-                <div v-if="pendingApprovalCount === 0" class="px-4 py-6 text-center">
-                  <p class="text-sm text-surface-400">No pending approvals</p>
+                <div v-if="notifications.length === 0" class="px-4 py-6 text-center">
+                  <p class="text-sm text-surface-400">No notifications yet</p>
                 </div>
                 <div v-else class="max-h-72 overflow-y-auto divide-y divide-surface-100 dark:divide-surface-800">
-                  <div
-                    v-for="req in pendingApprovalsData?.data ?? []"
-                    :key="req.id"
-                    class="px-4 py-3 hover:bg-surface-50 dark:hover:bg-surface-800/60 transition-colors"
+                  <button
+                    v-for="n in notifications"
+                    :key="n.id"
+                    class="flex items-start gap-3 w-full px-4 py-3 text-left hover:bg-surface-50 dark:hover:bg-surface-800/60 transition-colors cursor-pointer border-0 bg-transparent"
+                    @click="markRead(n.id); showNotificationDropdown = false"
                   >
-                    <p class="text-sm font-medium text-surface-800 dark:text-surface-200 truncate">
-                      {{ req.candidateFirstName }} {{ req.candidateLastName }}
-                    </p>
-                    <p class="text-xs text-surface-500 dark:text-surface-400 mt-0.5">
-                      {{ req.jobTitle }} · {{ req.fromStage }} → {{ req.toStage }}
-                    </p>
-                  </div>
+                    <span
+                      class="mt-1.5 size-2 shrink-0 rounded-full"
+                      :class="n.readAt ? 'bg-transparent' : 'bg-brand-500'"
+                    />
+                    <div class="min-w-0 flex-1">
+                      <p
+                        class="text-sm truncate"
+                        :class="n.readAt ? 'text-surface-500 dark:text-surface-400' : 'font-medium text-surface-800 dark:text-surface-200'"
+                      >
+                        {{ n.title }}
+                      </p>
+                      <p v-if="n.body" class="text-xs text-surface-400 dark:text-surface-500 truncate mt-0.5">
+                        {{ n.body }}
+                      </p>
+                    </div>
+                  </button>
                 </div>
               </div>
             </Transition>

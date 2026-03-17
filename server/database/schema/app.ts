@@ -526,6 +526,30 @@ export const applicationTask = pgTable('application_task', {
 ]))
 
 // ─────────────────────────────────────────────
+// Notifications
+// ─────────────────────────────────────────────
+
+/**
+ * In-app notifications for team members. Created by server-side events
+ * (stage changes, comments, approvals, assessments). Supports marking as read.
+ */
+export const notification = pgTable('notification', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  organizationId: text('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  title: text('title').notNull(),
+  body: text('body'),
+  resourceType: text('resource_type'),
+  resourceId: text('resource_id'),
+  readAt: timestamp('read_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ([
+  index('notification_user_idx').on(t.userId, t.readAt),
+  index('notification_org_user_idx').on(t.organizationId, t.userId),
+]))
+
+// ─────────────────────────────────────────────
 // Relations
 // ─────────────────────────────────────────────
 
@@ -634,4 +658,9 @@ export const applicationTaskRelations = relations(applicationTask, ({ one }) => 
   application: one(application, { fields: [applicationTask.applicationId], references: [application.id] }),
   completedBy: one(user, { fields: [applicationTask.completedById], references: [user.id] }),
   createdBy: one(user, { fields: [applicationTask.createdById], references: [user.id] }),
+}))
+
+export const notificationRelations = relations(notification, ({ one }) => ({
+  organization: one(organization, { fields: [notification.organizationId], references: [organization.id] }),
+  user: one(user, { fields: [notification.userId], references: [user.id] }),
 }))
