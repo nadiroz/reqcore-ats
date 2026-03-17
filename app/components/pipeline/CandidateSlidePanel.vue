@@ -64,6 +64,21 @@ const secondaryTransitions = computed(() => {
   return props.allowedTransitions.filter(s => s !== primaryTransition.value)
 })
 
+// Convert stage IDs to action verbs for transition buttons
+function transitionVerb(stageId: string): string {
+  const verbMap: Record<string, string> = {
+    rejected: 'Reject',
+    withdrawn: 'Withdraw',
+    hired: 'Mark Hired',
+    offer: 'Send Offer',
+    interview: 'Schedule Interview',
+  }
+  if (verbMap[stageId]) return verbMap[stageId]!
+  // Fall back: use stage label but strip past-tense -ed suffix
+  const label = stageLabel(stageId)
+  return label.replace(/ed$/, '').replace(/([a-z])([A-Z])/g, '$1 $2')
+}
+
 type FeedItem =
   | { kind: 'comment'; ts: string; data: any }
   | { kind: 'task'; ts: string; data: any }
@@ -273,7 +288,7 @@ const showTransitionDropdown = ref(false)
                   : 'text-surface-700 hover:bg-surface-50 dark:text-surface-300 dark:hover:bg-surface-800'"
                 @click="emit('transition', status); showTransitionDropdown = false"
               >
-                {{ stageLabel(status) }}
+                {{ transitionVerb(status) }}
               </button>
             </div>
           </div>
@@ -416,7 +431,7 @@ const showTransitionDropdown = ref(false)
           />
           <button
             :disabled="!commentBody.trim() || isSubmitting"
-            class="flex cursor-pointer items-center rounded-lg bg-brand-600 px-2.5 py-2 text-[10px] font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+            class="self-stretch flex cursor-pointer items-center justify-center rounded-lg bg-brand-600 px-3 text-[11px] font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
             @click="handleSubmit"
           >
             {{ inputMode === 'task' ? 'Add' : 'Send' }}

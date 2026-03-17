@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  UserRound, UserPlus, Pencil, Trash2, MoreHorizontal, X, CheckCircle2,
+  UserRound, UserPlus, Pencil, Trash2, X, CheckCircle2,
 } from 'lucide-vue-next'
 import { z } from 'zod'
 import draggable from 'vuedraggable'
@@ -51,7 +51,7 @@ const {
 const applications = computed(() => appData.value?.data ?? [])
 
 // ─────────────────────────────────────────────
-// Board layout: columns, gates, groups
+// Board layout: columns grouped by stage
 // ─────────────────────────────────────────────
 
 const statusCounts = computed(() => {
@@ -63,108 +63,53 @@ const statusCounts = computed(() => {
   return counts
 })
 
-// Derive board columns: each column is an active/terminal stage with associated gate stages
-const boardColumns = computed(() => {
-  const columns: Array<{ stage: (typeof pipelineStages.value)[0]; gatesBefore: (typeof pipelineStages.value) }> = []
-  let pendingGates: (typeof pipelineStages.value) = []
+const activeStages = computed(() => pipelineStages.value.filter((s: any) => !s.terminal))
+const terminalStages = computed(() => pipelineStages.value.filter((s: any) => s.terminal))
 
-  for (const stage of pipelineStages.value) {
-    if (stage.gate) {
-      pendingGates.push(stage)
-    } else {
-      columns.push({ stage, gatesBefore: [...pendingGates] })
-      pendingGates = []
-    }
-  }
-  return columns
-})
-
-const activeColumns = computed(() => boardColumns.value.filter(col => !col.stage.terminal))
-const terminalColumns = computed(() => boardColumns.value.filter(col => col.stage.terminal))
-
-// Map gate stage IDs to their preceding active stage ID (for board grouping)
-const gateToActiveStage = computed(() => {
-  const map: Record<string, string> = {}
-  let lastActiveId = ''
-  for (const stage of pipelineStages.value) {
-    if (stage.gate) {
-      if (lastActiveId) map[stage.id] = lastActiveId
-    } else {
-      lastActiveId = stage.id
-    }
-  }
-  return map
-})
-
-// Group applications by board column (gate stage candidates go to preceding active column)
-const boardApplicationsByColumn = computed(() => {
+// Group applications by their actual stage
+const applicationsByStage = computed(() => {
   const groups: Record<string, typeof applications.value> = {}
-  for (const col of boardColumns.value) groups[col.stage.id] = []
+  for (const s of pipelineStages.value) groups[s.id] = []
   for (const app of applications.value) {
-    const targetColumn = gateToActiveStage.value[app.status] ?? app.status
-    if (groups[targetColumn]) {
-      groups[targetColumn]!.push(app)
-    }
+    if (groups[app.status]) groups[app.status]!.push(app)
   }
   return groups
 })
 
-// Get gate label for a candidate if they're in a gate stage
-function getGateLabel(status: string): string | null {
-  const stage = pipelineStages.value.find((s: any) => s.id === status && s.gate)
-  return stage?.label ?? null
-}
-
 // ─────────────────────────────────────────────
-// Drag-and-drop (mutable groups for vuedraggable)
+// Drag-and-drop
 // ─────────────────────────────────────────────
 
 const isDragging = ref(false)
-const preventSync = ref(false)
-let dropProcessed = false
 const dragGroups = reactive<Record<string, any[]>>({})
 
 function syncDragGroups() {
-  const groups = boardApplicationsByColumn.value
+  const groups = applicationsByStage.value
   for (const [key, apps] of Object.entries(groups)) {
     dragGroups[key] = [...apps]
   }
-  // Remove stale keys
   for (const key of Object.keys(dragGroups)) {
     if (!(key in groups)) delete dragGroups[key]
   }
 }
 
-// Sync from source data when not dragging/processing
-watch(boardApplicationsByColumn, () => {
-  if (!preventSync.value) syncDragGroups()
+// Keep drag groups in sync with server data (only when not actively dragging)
+watch(applicationsByStage, () => {
+  if (!isDragging.value) syncDragGroups()
 }, { immediate: true })
-
-function updateDragGroup(stageId: string, newList: any[]) {
-  dragGroups[stageId] = newList
-}
 
 function onDragStart() {
   isDragging.value = true
-  preventSync.value = true
-  dropProcessed = false
 }
 
 function onDragEnd() {
   isDragging.value = false
-  // If no cross-list move was processed, reset sync
-  if (!dropProcessed) {
-    preventSync.value = false
-    syncDragGroups()
-  }
 }
 
 function handleDragChange(evt: any, targetStageId: string) {
   if (!evt.added) return
-  dropProcessed = true
   const movedItem = evt.added.element
   if (!movedItem || movedItem.status === targetStageId) {
-    preventSync.value = false
     syncDragGroups()
     return
   }
@@ -177,16 +122,13 @@ async function processDrop(movedItem: any, targetStageId: string) {
   const needsApproval = requiresApproval(movedItem.status, targetStageId)
 
   if (isTerminal || needsApproval) {
-    // Terminal and approval transitions go through the modal
     selectedApplicationId.value = movedItem.id
     openTransitionModal(targetStageId)
-    preventSync.value = false
     await refreshApps()
     syncDragGroups()
     return
   }
 
-  // Direct transition for non-terminal, non-approval stages
   const previousStatus = movedItem.status
   isMutating.value = true
   try {
@@ -197,7 +139,6 @@ async function processDrop(movedItem: any, targetStageId: string) {
     track('pipeline_stage_changed', { from_stage: previousStatus, to_stage: targetStageId })
     await refreshApps()
 
-    // Show undo toast
     if (undoTimer) clearTimeout(undoTimer)
     pendingUndo.value = { applicationId: movedItem.id, fromStatus: previousStatus, toStatus: targetStageId }
     undoTimer = setTimeout(() => { pendingUndo.value = null }, 8000)
@@ -208,7 +149,6 @@ async function processDrop(movedItem: any, targetStageId: string) {
     await refreshApps()
   } finally {
     isMutating.value = false
-    preventSync.value = false
     syncDragGroups()
   }
 }
@@ -574,7 +514,6 @@ function startEdit() {
   }
   editErrors.value = {}
   showEditModal.value = true
-  showMoreMenu.value = false
 }
 
 async function handleSave() {
@@ -646,37 +585,11 @@ function handleCandidateApplied() {
 }
 
 // ─────────────────────────────────────────────
-// More menu
-// ─────────────────────────────────────────────
-
-const showMoreMenu = ref(false)
-const moreMenuRef = ref<HTMLElement | null>(null)
-
-function handleClickOutside(event: MouseEvent) {
-  if (moreMenuRef.value && !moreMenuRef.value.contains(event.target as Node)) {
-    showMoreMenu.value = false
-  }
-}
-
-watch(showMoreMenu, (val) => {
-  if (val) setTimeout(() => document.addEventListener('click', handleClickOutside), 0)
-  else document.removeEventListener('click', handleClickOutside)
-})
-
-onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
-
-// ─────────────────────────────────────────────
 // Teleport target (for modals)
 // ─────────────────────────────────────────────
 
 const pipelineContainer = useTemplateRef<HTMLElement>('pipelineContainer')
 const teleportTarget = computed(() => pipelineContainer.value ?? 'body')
-
-// ─────────────────────────────────────────────
-// Sidebar push awareness
-// ─────────────────────────────────────────────
-
-const showJobSidebar = useState('jobSidebar', () => true)
 
 // ─────────────────────────────────────────────
 // Keyboard shortcuts
@@ -774,7 +687,28 @@ useSeoMeta({
 
       <!-- Quick actions teleported to sub-nav bar -->
       <Teleport to="#job-sub-nav-actions">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1.5">
+          <!-- Edit icon button -->
+          <button
+            class="inline-flex cursor-pointer items-center justify-center rounded-lg border border-surface-200 dark:border-surface-700/80 p-1.5 text-surface-500 hover:bg-white hover:text-surface-700 dark:hover:bg-surface-800 dark:hover:text-surface-300 transition-all duration-150"
+            title="Edit job"
+            @click="startEdit"
+          >
+            <Pencil class="size-3.5" />
+          </button>
+
+          <!-- Delete icon button -->
+          <button
+            class="inline-flex cursor-pointer items-center justify-center rounded-lg border border-surface-200 dark:border-surface-700/80 p-1.5 text-surface-400 hover:bg-danger-50 hover:text-danger-600 hover:border-danger-200 dark:hover:bg-danger-950/60 dark:hover:text-danger-400 dark:hover:border-danger-800 transition-all duration-150"
+            title="Delete job"
+            @click="showDeleteConfirm = true"
+          >
+            <Trash2 class="size-3.5" />
+          </button>
+
+          <div class="w-px h-4 bg-surface-200 dark:bg-surface-700" />
+
+          <!-- Add candidate -->
           <button
             class="hidden sm:inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-surface-200 dark:border-surface-700/80 px-2.5 py-1.5 text-[11px] font-medium text-surface-600 dark:text-surface-300 hover:bg-white hover:border-surface-300 dark:hover:bg-surface-800 dark:hover:border-surface-600 transition-all duration-150"
             @click="showApplyModal = true"
@@ -783,7 +717,20 @@ useSeoMeta({
             Add Candidate
           </button>
 
-          <!-- Primary job transition: labeled colored button -->
+          <!-- Secondary transitions as inline labeled buttons -->
+          <template v-if="secondaryJobTransitions.length > 0">
+            <button
+              v-for="t in secondaryJobTransitions"
+              :key="t"
+              :disabled="isJobTransitioning"
+              class="hidden sm:inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-surface-200 dark:border-surface-700/80 px-2.5 py-1.5 text-[11px] font-medium text-surface-600 dark:text-surface-300 hover:bg-white hover:border-surface-300 dark:hover:bg-surface-800 dark:hover:border-surface-600 transition-all duration-150 disabled:opacity-50"
+              @click="handleJobTransition(t)"
+            >
+              {{ jobTransitionConfig[t]?.label ?? t }}
+            </button>
+          </template>
+
+          <!-- Primary transition -->
           <button
             v-if="primaryJobTransition"
             :disabled="isJobTransitioning"
@@ -793,65 +740,6 @@ useSeoMeta({
           >
             {{ jobTransitionConfig[primaryJobTransition]?.label ?? primaryJobTransition }}
           </button>
-
-          <!-- More menu (Edit, secondary transitions, Delete) -->
-          <div ref="moreMenuRef" class="relative">
-            <button
-              class="inline-flex cursor-pointer items-center justify-center rounded-lg border border-surface-200 dark:border-surface-700/80 p-1.5 text-surface-500 hover:bg-white hover:text-surface-700 dark:hover:bg-surface-800 dark:hover:text-surface-300 transition-all duration-150"
-              @click="showMoreMenu = !showMoreMenu"
-            >
-              <MoreHorizontal class="size-3.5" />
-            </button>
-
-            <Transition
-              enter-active-class="transition duration-150 ease-out"
-              enter-from-class="opacity-0 scale-95 -translate-y-1"
-              enter-to-class="opacity-100 scale-100 translate-y-0"
-              leave-active-class="transition duration-100 ease-in"
-              leave-from-class="opacity-100 scale-100 translate-y-0"
-              leave-to-class="opacity-0 scale-95 -translate-y-1"
-            >
-              <div
-                v-if="showMoreMenu"
-                class="absolute right-0 top-full mt-1.5 z-50 w-52 rounded-xl border border-surface-200 dark:border-surface-700/80 bg-white dark:bg-surface-900 shadow-xl py-1.5 origin-top-right"
-              >
-                <button
-                  class="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2 text-sm text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800/80 transition-colors"
-                  @click="startEdit"
-                >
-                  <Pencil class="size-3.5 text-surface-400" />
-                  Edit Job
-                </button>
-                <button
-                  class="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2 text-sm text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800/80 transition-colors sm:hidden"
-                  @click="showApplyModal = true; showMoreMenu = false"
-                >
-                  <UserPlus class="size-3.5 text-surface-400" />
-                  Add Candidate
-                </button>
-                <template v-if="secondaryJobTransitions.length > 0">
-                  <div class="border-t border-surface-100 dark:border-surface-800 my-1.5 mx-2" />
-                  <button
-                    v-for="t in secondaryJobTransitions"
-                    :key="t"
-                    :disabled="isJobTransitioning"
-                    class="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2 text-sm text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800/80 transition-colors disabled:opacity-50"
-                    @click="handleJobTransition(t); showMoreMenu = false"
-                  >
-                    {{ jobTransitionConfig[t]?.label ?? t }}
-                  </button>
-                </template>
-                <div class="border-t border-surface-100 dark:border-surface-800 my-1.5 mx-2" />
-                <button
-                  class="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2 text-sm text-danger-600 dark:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-950/60 transition-colors"
-                  @click="showDeleteConfirm = true; showMoreMenu = false"
-                >
-                  <Trash2 class="size-3.5" />
-                  Delete Job
-                </button>
-              </div>
-            </Transition>
-          </div>
         </div>
       </Teleport>
 
@@ -861,94 +749,119 @@ useSeoMeta({
       <div class="flex flex-1 overflow-hidden">
         <!-- Board columns (scrollable horizontally) -->
         <div class="flex flex-1 overflow-x-auto">
-          <!-- Active stage columns with Almanac-style gate connectors -->
-          <template v-for="(col, idx) in activeColumns" :key="col.stage.id">
-            <!-- Connector between columns (with optional gate nodes on the line) -->
+          <!-- Active stage columns -->
+          <div
+            v-for="stage in activeStages"
+            :key="stage.id"
+            class="flex shrink-0 flex-col w-72 border-r border-surface-200/80 dark:border-surface-800/60"
+          >
+            <!-- Column header -->
             <div
-              v-if="idx > 0"
-              class="flex shrink-0 flex-col"
+              class="shrink-0 px-3 py-2.5 border-b border-surface-100 dark:border-surface-800/40"
+              :class="(stage as any).gate
+                ? 'bg-amber-50/60 dark:bg-amber-950/20'
+                : 'bg-surface-50/50 dark:bg-surface-900/50'"
             >
-              <!-- Align connector with column header center (~20px from top) -->
-              <div class="flex items-center px-0" style="padding-top: 18px;">
-                <!-- Leading line segment -->
-                <div class="w-3 h-px bg-surface-300 dark:bg-surface-600" />
-
-                <!-- Gate nodes on the connector line -->
-                <template v-for="gate in col.gatesBefore" :key="gate.id">
-                  <div
-                    class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 mx-1 shrink-0 transition-all duration-200"
-                    :class="(statusCounts[gate.id] ?? 0) > 0
-                      ? 'border-amber-300 bg-amber-50 shadow-sm dark:border-amber-700/80 dark:bg-amber-950/40'
-                      : 'border-surface-200 bg-surface-50 dark:border-surface-700 dark:bg-surface-800/60'"
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="size-2 rounded-full shrink-0" :class="stageColorClass(stage.id, 'dot')" />
+                  <span class="text-xs font-semibold whitespace-nowrap text-surface-700 dark:text-surface-300">
+                    {{ stage.label }}
+                  </span>
+                  <!-- Subtle gate indicator -->
+                  <span
+                    v-if="(stage as any).gate"
+                    class="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400"
                   >
-                    <CheckCircle2
-                      class="size-3 shrink-0"
-                      :class="(statusCounts[gate.id] ?? 0) > 0
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-surface-400 dark:text-surface-500'"
-                    />
-                    <span
-                      class="text-[11px] font-medium whitespace-nowrap"
-                      :class="(statusCounts[gate.id] ?? 0) > 0
-                        ? 'text-amber-700 dark:text-amber-300'
-                        : 'text-surface-500 dark:text-surface-400'"
-                    >
-                      {{ gate.label }}
-                    </span>
-                    <span
-                      v-if="(statusCounts[gate.id] ?? 0) > 0"
-                      class="inline-flex min-w-[16px] items-center justify-center rounded-full px-1 py-0.5 text-[9px] font-bold tabular-nums bg-amber-200/70 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
-                    >
-                      {{ statusCounts[gate.id] }}
-                    </span>
-                  </div>
-                  <!-- Line segment between multiple gates -->
-                  <div class="w-2 h-px bg-surface-300 dark:bg-surface-600" />
-                </template>
-
-                <!-- Trailing line + arrow -->
-                <template v-if="col.gatesBefore.length === 0">
-                  <div class="w-4 h-px bg-surface-300 dark:bg-surface-600 relative">
-                    <div class="absolute right-0 top-1/2 -translate-y-1/2 w-0 h-0 border-l-[4px] border-l-surface-300 dark:border-l-surface-600 border-y-[3px] border-y-transparent" />
-                  </div>
-                </template>
-                <template v-else>
-                  <div class="w-1 h-px bg-surface-300 dark:bg-surface-600" />
-                  <div class="w-0 h-0 border-l-[4px] border-l-surface-300 dark:border-l-surface-600 border-y-[3px] border-y-transparent" />
-                </template>
+                    <CheckCircle2 class="size-2.5" />
+                    Gate
+                  </span>
+                </div>
+                <span class="inline-flex min-w-[20px] items-center justify-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums bg-surface-100 text-surface-500 dark:bg-surface-800/80 dark:text-surface-400">
+                  {{ statusCounts[stage.id] ?? 0 }}
+                </span>
               </div>
             </div>
 
-            <!-- Active stage column -->
-            <div class="flex shrink-0 flex-col w-72 border-r border-surface-200/80 dark:border-surface-800/60">
-              <!-- Column header -->
-              <div class="shrink-0 px-3 py-2.5 border-b bg-surface-50/50 dark:bg-surface-900/50 border-surface-100 dark:border-surface-800/40">
+            <!-- Draggable card area -->
+            <draggable
+              :list="dragGroups[stage.id]"
+              :group="{ name: 'pipeline', pull: true, put: true }"
+              item-key="id"
+              :animation="200"
+              ghost-class="dnd-ghost"
+              drag-class="dnd-drag"
+              dragover-class="dnd-over"
+              class="flex-1 overflow-y-auto p-2 space-y-2 min-h-[60px] rounded-lg transition-colors"
+              @start="onDragStart"
+              @end="onDragEnd"
+              @change="(evt: any) => handleDragChange(evt, stage.id)"
+            >
+              <template #item="{ element: app }">
+                <PipelineCandidateCard
+                  :id="app.id"
+                  :candidate-first-name="app.candidateFirstName"
+                  :candidate-last-name="app.candidateLastName"
+                  :candidate-email="app.candidateEmail"
+                  :score="app.score"
+                  :created-at="app.createdAt"
+                  :status="app.status"
+                  :selected="selectedApplicationId === app.id"
+                  :has-interview="applicationsWithInterviews.has(app.id)"
+                  @click="selectCandidate(app.id)"
+                />
+              </template>
+
+              <template #footer>
+                <div
+                  v-if="(dragGroups[stage.id] ?? []).length === 0 && !isDragging"
+                  class="flex flex-col items-center justify-center py-8 text-center"
+                >
+                  <UserRound class="size-5 text-surface-300 dark:text-surface-600 mb-1.5" />
+                  <p class="text-[11px] text-surface-400 dark:text-surface-500">No candidates</p>
+                </div>
+              </template>
+            </draggable>
+          </div>
+
+          <!-- Dashed separator before terminal stages -->
+          <template v-if="terminalStages.length > 0">
+            <div class="flex shrink-0 items-start pt-[18px] px-1">
+              <div class="w-8 border-t border-dashed border-surface-300 dark:border-surface-600" />
+            </div>
+
+            <!-- Terminal stage columns -->
+            <div
+              v-for="stage in terminalStages"
+              :key="stage.id"
+              class="flex shrink-0 flex-col w-60 bg-surface-50/30 dark:bg-surface-950/20 border-r border-surface-200/80 dark:border-surface-800/60"
+            >
+              <div class="shrink-0 px-3 py-2.5 border-b bg-surface-50/80 dark:bg-surface-900/30 border-surface-100 dark:border-surface-800/40">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
-                    <span class="size-2 rounded-full shrink-0" :class="stageColorClass(col.stage.id, 'dot')" />
-                    <span class="text-xs font-semibold whitespace-nowrap text-surface-700 dark:text-surface-300">
-                      {{ col.stage.label }}
+                    <span class="size-2 rounded-full shrink-0" :class="stageColorClass(stage.id, 'dot')" />
+                    <span class="text-xs font-semibold whitespace-nowrap text-surface-500 dark:text-surface-400">
+                      {{ stage.label }}
                     </span>
                   </div>
-                  <span class="inline-flex min-w-[20px] items-center justify-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums bg-surface-100 text-surface-500 dark:bg-surface-800/80 dark:text-surface-400">
-                    {{ statusCounts[col.stage.id] ?? 0 }}
+                  <span class="inline-flex min-w-[20px] items-center justify-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums bg-surface-100 text-surface-400 dark:bg-surface-800/80 dark:text-surface-500">
+                    {{ statusCounts[stage.id] ?? 0 }}
                   </span>
                 </div>
               </div>
 
-              <!-- Draggable card area -->
               <draggable
-                :model-value="dragGroups[col.stage.id] ?? []"
+                :list="dragGroups[stage.id]"
                 :group="{ name: 'pipeline', pull: true, put: true }"
                 item-key="id"
                 :animation="200"
-                ghost-class="opacity-30"
-                drag-class="rotate-2 shadow-xl"
-                class="flex-1 overflow-y-auto p-2 space-y-2 min-h-[60px]"
-                @update:model-value="(val: any[]) => updateDragGroup(col.stage.id, val)"
+                ghost-class="dnd-ghost"
+                drag-class="dnd-drag"
+                dragover-class="dnd-over"
+                class="flex-1 overflow-y-auto p-2 space-y-2 min-h-[60px] rounded-lg transition-colors"
                 @start="onDragStart"
                 @end="onDragEnd"
-                @change="(evt: any) => handleDragChange(evt, col.stage.id)"
+                @change="(evt: any) => handleDragChange(evt, stage.id)"
               >
                 <template #item="{ element: app }">
                   <PipelineCandidateCard
@@ -961,14 +874,13 @@ useSeoMeta({
                     :status="app.status"
                     :selected="selectedApplicationId === app.id"
                     :has-interview="applicationsWithInterviews.has(app.id)"
-                    :pending-gate="getGateLabel(app.status)"
                     @click="selectCandidate(app.id)"
                   />
                 </template>
 
                 <template #footer>
                   <div
-                    v-if="(dragGroups[col.stage.id] ?? []).length === 0 && !isDragging"
+                    v-if="(dragGroups[stage.id] ?? []).length === 0 && !isDragging"
                     class="flex flex-col items-center justify-center py-8 text-center"
                   >
                     <UserRound class="size-5 text-surface-300 dark:text-surface-600 mb-1.5" />
@@ -977,80 +889,6 @@ useSeoMeta({
                 </template>
               </draggable>
             </div>
-          </template>
-
-          <!-- Dashed separator before terminal stages -->
-          <template v-if="terminalColumns.length > 0">
-            <div class="flex shrink-0 flex-col">
-              <div class="flex items-center mx-1" style="padding-top: 18px;">
-                <div class="w-8 border-t border-dashed border-surface-300 dark:border-surface-600" />
-              </div>
-            </div>
-
-            <!-- Terminal stage columns -->
-            <template v-for="(col, tIdx) in terminalColumns" :key="col.stage.id">
-              <div v-if="tIdx > 0" class="flex shrink-0 flex-col">
-                <div class="flex items-center" style="padding-top: 18px;">
-                  <div class="w-2 shrink-0" />
-                </div>
-              </div>
-              <div class="flex shrink-0 flex-col w-60 bg-surface-50/30 dark:bg-surface-950/20 border-r border-surface-200/80 dark:border-surface-800/60">
-                <!-- Terminal column header -->
-                <div class="shrink-0 px-3 py-2.5 border-b bg-surface-50/80 dark:bg-surface-900/30 border-surface-100 dark:border-surface-800/40">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                      <span class="size-2 rounded-full shrink-0" :class="stageColorClass(col.stage.id, 'dot')" />
-                      <span class="text-xs font-semibold whitespace-nowrap text-surface-500 dark:text-surface-400">
-                        {{ col.stage.label }}
-                      </span>
-                    </div>
-                    <span class="inline-flex min-w-[20px] items-center justify-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums bg-surface-100 text-surface-400 dark:bg-surface-800/80 dark:text-surface-500">
-                      {{ statusCounts[col.stage.id] ?? 0 }}
-                    </span>
-                  </div>
-                </div>
-
-                <!-- Draggable card area (terminal) -->
-                <draggable
-                  :model-value="dragGroups[col.stage.id] ?? []"
-                  :group="{ name: 'pipeline', pull: true, put: true }"
-                  item-key="id"
-                  :animation="200"
-                  ghost-class="opacity-30"
-                  drag-class="rotate-2 shadow-xl"
-                  class="flex-1 overflow-y-auto p-2 space-y-2 min-h-[60px]"
-                  @update:model-value="(val: any[]) => updateDragGroup(col.stage.id, val)"
-                  @start="onDragStart"
-                  @end="onDragEnd"
-                  @change="(evt: any) => handleDragChange(evt, col.stage.id)"
-                >
-                  <template #item="{ element: app }">
-                    <PipelineCandidateCard
-                      :id="app.id"
-                      :candidate-first-name="app.candidateFirstName"
-                      :candidate-last-name="app.candidateLastName"
-                      :candidate-email="app.candidateEmail"
-                      :score="app.score"
-                      :created-at="app.createdAt"
-                      :status="app.status"
-                      :selected="selectedApplicationId === app.id"
-                      :has-interview="applicationsWithInterviews.has(app.id)"
-                      @click="selectCandidate(app.id)"
-                    />
-                  </template>
-
-                  <template #footer>
-                    <div
-                      v-if="(dragGroups[col.stage.id] ?? []).length === 0 && !isDragging"
-                      class="flex flex-col items-center justify-center py-8 text-center"
-                    >
-                      <UserRound class="size-5 text-surface-300 dark:text-surface-600 mb-1.5" />
-                      <p class="text-[11px] text-surface-400 dark:text-surface-500">No candidates</p>
-                    </div>
-                  </template>
-                </draggable>
-              </div>
-            </template>
           </template>
         </div>
 
@@ -1222,3 +1060,25 @@ useSeoMeta({
 
   </div>
 </template>
+
+<style scoped>
+/* Drag ghost: card being dragged from */
+:deep(.dnd-ghost) {
+  opacity: 0.3;
+}
+/* Drag class: the floating card following cursor */
+:deep(.dnd-drag) {
+  transform: rotate(2deg);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+}
+/* Drop zone highlight when dragging over a column */
+:deep(.dnd-over) {
+  background-color: rgb(239 246 255 / 0.6); /* brand-50 light */
+  outline: 2px dashed rgb(147 197 253 / 0.8); /* brand-300 */
+  outline-offset: -2px;
+}
+:root.dark :deep(.dnd-over) {
+  background-color: rgb(23 37 84 / 0.3); /* brand-950 dark */
+  outline-color: rgb(30 64 175 / 0.5);
+}
+</style>
