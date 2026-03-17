@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { notification, orgSettings } from '../database/schema'
-import type { NotificationPreferences } from '../database/schema'
+import { notification, orgSettings, userNotificationPreferences } from '../database/schema'
+import type { NotificationPreferences, NotificationChannelPrefs } from '../database/schema'
 import { getNovu } from '../lib/novu'
 
 interface CreateNotificationOpts {
@@ -38,16 +38,42 @@ async function getOrgNotificationPrefs(orgId: string): Promise<NotificationPrefe
 }
 
 /**
+ * Resolve effective channel prefs for a user + notification type.
+ * User overrides take priority; org prefs are the fallback.
+ */
+async function getEffectivePrefs(
+  orgId: string,
+  userId: string,
+  type: string,
+): Promise<NotificationChannelPrefs> {
+  const orgPrefs = await getOrgNotificationPrefs(orgId)
+  const orgType = orgPrefs?.[type as keyof NotificationPreferences]
+
+  let userType: NotificationChannelPrefs | undefined
+  try {
+    const row = await db.query.userNotificationPreferences.findFirst({
+      where: eq(userNotificationPreferences.userId, userId),
+      columns: { preferences: true },
+    })
+    userType = row?.preferences?.[type as keyof NotificationPreferences]
+  } catch { /* no overrides */ }
+
+  return {
+    inApp: userType?.inApp ?? orgType?.inApp ?? true,
+    email: userType?.email ?? orgType?.email ?? false,
+  }
+}
+
+/**
  * Create an in-app notification and optionally trigger Novu for
  * multi-channel delivery (email, push) when configured.
- * Respects org-level notification preferences per type.
+ * Respects user-level overrides, then org-level preferences.
  */
 export async function createNotification(opts: CreateNotificationOpts) {
-  const prefs = await getOrgNotificationPrefs(opts.orgId)
-  const typePrefs = prefs?.[opts.type as keyof NotificationPreferences]
+  const effective = await getEffectivePrefs(opts.orgId, opts.userId, opts.type)
 
-  // If inApp is explicitly disabled for this type, skip DB insert
-  if (typePrefs?.inApp === false) return null
+  // If inApp is disabled for this user+type, skip DB insert
+  if (effective.inApp === false) return null
 
   const [row] = await db
     .insert(notification)

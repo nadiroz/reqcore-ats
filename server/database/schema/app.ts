@@ -267,6 +267,17 @@ export const orgSettings = pgTable('org_settings', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
+/**
+ * Per-user notification preference overrides.
+ * When set, these take priority over the org-wide defaults.
+ * Null/missing keys fall through to org preferences.
+ */
+export const userNotificationPreferences = pgTable('user_notification_preferences', {
+  userId: text('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  preferences: jsonb('preferences').$type<NotificationPreferences>().notNull(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
 // ─────────────────────────────────────────────
 // Calendar Integrations
 // ─────────────────────────────────────────────

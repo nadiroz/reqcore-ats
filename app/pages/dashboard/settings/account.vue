@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   User, Lock, Save, Loader2, Eye, EyeOff, Check,
-  KeyRound, Mail, Calendar,
+  KeyRound, Mail, Calendar, Bell,
 } from 'lucide-vue-next'
 
 definePageMeta({})
@@ -105,6 +105,75 @@ async function handleChangePassword() {
   }
   finally {
     isChangingPassword.value = false
+  }
+}
+
+// ─────────────────────────────────────────────
+// Personal notification preferences
+// ─────────────────────────────────────────────
+const NOTIFICATION_TYPES = [
+  { key: 'application_status_changed', label: 'Application status changes' },
+  { key: 'comment_added', label: 'New comments' },
+  { key: 'approval_requested', label: 'Approval requests' },
+  { key: 'approval_resolved', label: 'Approval decisions' },
+  { key: 'assessment_decision', label: 'Assessment decisions' },
+  { key: 'interview_scheduled', label: 'Interview scheduled' },
+  { key: 'task_created', label: 'New tasks' },
+] as const
+
+type NotificationType = typeof NOTIFICATION_TYPES[number]['key']
+
+interface ChannelPrefs { inApp: boolean; email: boolean }
+
+const { data: personalPrefs, refresh: refreshPrefs } = useFetch('/api/notification-preferences/personal', {
+  key: 'personal-notif-prefs',
+  headers: useRequestHeaders(['cookie']),
+})
+
+const localNotifPrefs = ref<Record<NotificationType, ChannelPrefs>>({} as any)
+const notifDirty = ref(false)
+const isSavingNotifs = ref(false)
+const notifSuccess = ref(false)
+const notifError = ref('')
+
+watch(personalPrefs, (val) => {
+  if (!notifDirty.value) {
+    const mapped: any = {}
+    for (const t of NOTIFICATION_TYPES) {
+      const existing = (val as any)?.[t.key]
+      // undefined means "use org default", so show as enabled (placeholder state)
+      mapped[t.key] = {
+        inApp: existing?.inApp ?? true,
+        email: existing?.email ?? false,
+      }
+    }
+    localNotifPrefs.value = mapped
+  }
+}, { immediate: true })
+
+function markNotifDirty() {
+  notifDirty.value = true
+  notifError.value = ''
+  notifSuccess.value = false
+}
+
+async function saveNotifPrefs() {
+  isSavingNotifs.value = true
+  notifError.value = ''
+  notifSuccess.value = false
+  try {
+    await $fetch('/api/notification-preferences/personal', {
+      method: 'PATCH',
+      body: localNotifPrefs.value,
+    })
+    notifDirty.value = false
+    notifSuccess.value = true
+    setTimeout(() => { notifSuccess.value = false }, 3000)
+    await refreshPrefs()
+  } catch (err: any) {
+    notifError.value = err?.data?.statusMessage ?? 'Failed to save notification preferences.'
+  } finally {
+    isSavingNotifs.value = false
   }
 }
 
@@ -370,6 +439,93 @@ function getInitials(name: string | undefined): string {
           {{ passwordError }}
         </div>
       </div>
+    </section>
+
+    <!-- Personal notification preferences -->
+    <section class="mt-8 rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 overflow-hidden">
+      <div class="px-6 py-5 border-b border-surface-200 dark:border-surface-800">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center size-10 rounded-lg bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400">
+            <Bell class="size-5" />
+          </div>
+          <div>
+            <h2 class="text-base font-semibold text-surface-900 dark:text-surface-100">Notifications</h2>
+            <p class="text-sm text-surface-500 dark:text-surface-400">Personal overrides. Unset channels fall back to org defaults.</p>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <!-- Header row -->
+        <div class="grid grid-cols-[1fr_80px_80px] gap-4 px-6 py-3 border-b border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-800/30">
+          <span class="text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">Event</span>
+          <span class="text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider text-center">In-App</span>
+          <span class="text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider text-center">Email</span>
+        </div>
+
+        <div class="divide-y divide-surface-100 dark:divide-surface-800">
+          <div
+            v-for="t in NOTIFICATION_TYPES"
+            :key="t.key"
+            class="grid grid-cols-[1fr_80px_80px] gap-4 items-center px-6 py-3.5"
+          >
+            <span class="text-sm text-surface-800 dark:text-surface-200">{{ t.label }}</span>
+
+            <div class="flex justify-center">
+              <button
+                class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-surface-900"
+                :class="localNotifPrefs[t.key]?.inApp ? 'bg-brand-600' : 'bg-surface-200 dark:bg-surface-700'"
+                @click="localNotifPrefs[t.key].inApp = !localNotifPrefs[t.key].inApp; markNotifDirty()"
+              >
+                <span
+                  class="pointer-events-none inline-block size-4 transform rounded-full bg-white shadow ring-0 transition duration-200"
+                  :class="localNotifPrefs[t.key]?.inApp ? 'translate-x-4' : 'translate-x-0'"
+                />
+              </button>
+            </div>
+
+            <div class="flex justify-center">
+              <button
+                class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-surface-900"
+                :class="localNotifPrefs[t.key]?.email ? 'bg-brand-600' : 'bg-surface-200 dark:bg-surface-700'"
+                @click="localNotifPrefs[t.key].email = !localNotifPrefs[t.key].email; markNotifDirty()"
+              >
+                <span
+                  class="pointer-events-none inline-block size-4 transform rounded-full bg-white shadow ring-0 transition duration-200"
+                  :class="localNotifPrefs[t.key]?.email ? 'translate-x-4' : 'translate-x-0'"
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="notifError" class="mx-6 mb-4 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+        {{ notifError }}
+      </div>
+
+      <div v-if="notifDirty" class="px-6 py-4 border-t border-surface-200 dark:border-surface-800 flex items-center gap-3">
+        <button
+          :disabled="isSavingNotifs"
+          class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          @click="saveNotifPrefs"
+        >
+          <Loader2 v-if="isSavingNotifs" class="size-4 animate-spin" />
+          <Save v-else class="size-4" />
+          {{ isSavingNotifs ? 'Saving…' : 'Save preferences' }}
+        </button>
+      </div>
+
+      <Transition
+        enter-active-class="transition-opacity duration-300"
+        leave-active-class="transition-opacity duration-300"
+        enter-from-class="opacity-0"
+        leave-to-class="opacity-0"
+      >
+        <span v-if="notifSuccess" class="px-6 pb-4 inline-block text-sm text-success-600 dark:text-success-400 font-medium">
+          Preferences saved
+        </span>
+      </Transition>
     </section>
 
     <!-- Session info -->
