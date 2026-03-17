@@ -10,15 +10,70 @@
  * sides stay in sync automatically.
  */
 
-// ─── Application status transitions ────────────────────────────────
+// ─── Pipeline stage types (shared client + server) ──────────────────
+
+export interface PipelineStage {
+  id: string
+  label: string
+  terminal: boolean
+  builtin: boolean
+}
+
+export interface PipelineConfig {
+  stages: PipelineStage[]
+}
+
 /**
- * Allowed status transitions for applications.
- * - `hired` is terminal — no forward transitions
- * - `rejected` can be re-opened back to `new`
+ * Default pipeline stages used when no org-specific config exists.
+ */
+export const DEFAULT_PIPELINE_STAGES: PipelineStage[] = [
+  { id: 'new', label: 'New', terminal: false, builtin: true },
+  { id: 'screening', label: 'Screening', terminal: false, builtin: true },
+  { id: 'interview', label: 'Interview', terminal: false, builtin: true },
+  { id: 'offer', label: 'Offer', terminal: false, builtin: true },
+  { id: 'hired', label: 'Hired', terminal: true, builtin: true },
+  { id: 'rejected', label: 'Rejected', terminal: true, builtin: true },
+]
+
+/**
+ * Compute allowed status transitions from an ordered list of pipeline stages.
+ * Each active (non-terminal) stage can advance to the next active stage.
+ * The last active stage advances to "hired". Any active stage can reject.
+ * "rejected" reverts to the first active stage.
+ */
+export function computeTransitions(stages: PipelineStage[]): Record<string, string[]> {
+  const result: Record<string, string[]> = {}
+  const activeStages = stages.filter(s => !s.terminal)
+  const rejectedId = stages.find(s => s.id === 'rejected')?.id
+  const hiredId = stages.find(s => s.id === 'hired')?.id
+
+  for (let i = 0; i < activeStages.length; i++) {
+    const transitions: string[] = []
+    if (i < activeStages.length - 1) {
+      transitions.push(activeStages[i + 1].id)
+    } else if (hiredId) {
+      transitions.push(hiredId)
+    }
+    if (rejectedId) transitions.push(rejectedId)
+    result[activeStages[i].id] = transitions
+  }
+
+  if (hiredId) result[hiredId] = []
+  if (rejectedId) {
+    result[rejectedId] = activeStages.length > 0 ? [activeStages[0].id] : []
+  }
+
+  return result
+}
+
+// ─── Application status transitions (static fallback) ───────────────
+/**
+ * Static allowed transitions — used as fallback when org pipeline config is unavailable.
+ * For orgs with custom pipeline, use computeTransitions(orgStages) instead.
  */
 export const APPLICATION_STATUS_TRANSITIONS: Record<string, string[]> = {
-  new: ['screening', 'interview', 'rejected'],
-  screening: ['interview', 'offer', 'rejected'],
+  new: ['screening', 'rejected'],
+  screening: ['interview', 'rejected'],
   interview: ['offer', 'rejected'],
   offer: ['hired', 'rejected'],
   hired: [],

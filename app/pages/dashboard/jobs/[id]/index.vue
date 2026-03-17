@@ -9,7 +9,7 @@ import {
 } from 'lucide-vue-next'
 import { z } from 'zod'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
-import { APPLICATION_STATUS_TRANSITIONS, JOB_STATUS_TRANSITIONS, INTERVIEW_STATUS_TRANSITIONS } from '~~/shared/status-transitions'
+import { JOB_STATUS_TRANSITIONS, INTERVIEW_STATUS_TRANSITIONS } from '~~/shared/status-transitions'
 
 definePageMeta({
   layout: 'dashboard',
@@ -43,15 +43,15 @@ const {
   headers: useRequestHeaders(['cookie']),
 })
 
-const PIPELINE_STATUSES = ['new', 'screening', 'interview', 'offer', 'hired', 'rejected'] as const
-type PipelineStatus = typeof PIPELINE_STATUSES[number]
+const { stages: pipelineStages, stageLabel, transitions: pipelineTransitions } = usePipelineConfig()
+
+const PIPELINE_STATUSES = computed(() => pipelineStages.value.map(s => s.id))
+type PipelineStatus = string
 
 const applications = computed(() => appData.value?.data ?? [])
 
 // Read initial pipeline stage from URL query param (?stage=screening)
-const initialStage = PIPELINE_STATUSES.includes(route.query.stage as any)
-  ? (route.query.stage as PipelineStatus)
-  : 'new'
+const initialStage: PipelineStatus = (route.query.stage as string) || 'new'
 const focusStatus = ref<PipelineStatus>(initialStage)
 
 const focusedApplications = computed(() =>
@@ -391,9 +391,6 @@ const transitionClasses: Record<string, string> = {
   rejected: 'bg-danger-600 text-white hover:bg-danger-700',
 }
 
-function formatStatusLabel(status: string) {
-  return status.charAt(0).toUpperCase() + status.slice(1)
-}
 
 function formatResponseValue(value: unknown): string {
   if (Array.isArray(value)) return value.join(', ')
@@ -432,7 +429,7 @@ function scoreClass(score: number) {
 
 const allowedTransitions = computed(() => {
   if (!currentSummary.value) return []
-  return APPLICATION_STATUS_TRANSITIONS[currentSummary.value.status] ?? []
+  return pipelineTransitions.value[currentSummary.value.status] ?? []
 })
 
 function isCurrentStatus(status: string) {
@@ -487,7 +484,7 @@ async function handleInterviewScheduled() {
 
   // Transition the application status to 'interview' after scheduling
   if (currentSummary.value && currentSummary.value.status !== 'interview') {
-    const allowed = APPLICATION_STATUS_TRANSITIONS[currentSummary.value.status] ?? []
+    const allowed = pipelineTransitions.value[currentSummary.value.status] ?? []
     if (allowed.includes('interview')) {
       await changeStatus('interview')
 
@@ -823,16 +820,18 @@ onMounted(() => document.addEventListener('fullscreenchange', onFullscreenChange
 onBeforeUnmount(() => document.removeEventListener('fullscreenchange', onFullscreenChange))
 
 function goToPreviousStage() {
-  const idx = PIPELINE_STATUSES.indexOf(focusStatus.value)
+  const statuses = PIPELINE_STATUSES.value
+  const idx = statuses.indexOf(focusStatus.value)
   if (idx > 0) {
-    focusStatus.value = PIPELINE_STATUSES[idx - 1]!
+    focusStatus.value = statuses[idx - 1]!
   }
 }
 
 function goToNextStage() {
-  const idx = PIPELINE_STATUSES.indexOf(focusStatus.value)
-  if (idx < PIPELINE_STATUSES.length - 1) {
-    focusStatus.value = PIPELINE_STATUSES[idx + 1]!
+  const statuses = PIPELINE_STATUSES.value
+  const idx = statuses.indexOf(focusStatus.value)
+  if (idx < statuses.length - 1) {
+    focusStatus.value = statuses[idx + 1]!
   }
 }
 
@@ -1249,7 +1248,7 @@ function closeDocPreview() {
               'bg-success-600 dark:bg-success-300': status === 'hired',
               'bg-surface-400 dark:bg-surface-500': status === 'rejected',
             }" />
-            {{ formatStatusLabel(status) }}
+            {{ stageLabel(status) }}
             <span
               class="inline-flex min-w-[20px] items-center justify-center rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums transition-colors duration-200"
               :class="isFocusStatus(status)

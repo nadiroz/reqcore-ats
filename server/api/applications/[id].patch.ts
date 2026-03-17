@@ -1,6 +1,7 @@
 import { eq, and } from 'drizzle-orm'
-import { application } from '../../database/schema'
-import { applicationIdParamSchema, updateApplicationSchema, APPLICATION_STATUS_TRANSITIONS } from '../../utils/schemas/application'
+import { application, orgSettings } from '../../database/schema'
+import { applicationIdParamSchema, updateApplicationSchema } from '../../utils/schemas/application'
+import { computeTransitions, DEFAULT_PIPELINE_STAGES } from '~~/shared/status-transitions'
 
 /**
  * PATCH /api/applications/:id
@@ -25,7 +26,13 @@ export default defineEventHandler(async (event) => {
 
   // Validate status transition if status is being changed
   if (body.status && body.status !== current.status) {
-    const allowed = APPLICATION_STATUS_TRANSITIONS[current.status] ?? []
+    const settings = await db.query.orgSettings.findFirst({
+      where: eq(orgSettings.organizationId, orgId),
+      columns: { pipelineConfig: true },
+    })
+    const stages = settings?.pipelineConfig?.stages ?? DEFAULT_PIPELINE_STAGES
+    const transitions = computeTransitions(stages)
+    const allowed = transitions[current.status] ?? []
     if (!allowed.includes(body.status)) {
       throw createError({
         statusCode: 422,

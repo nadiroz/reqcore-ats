@@ -15,7 +15,7 @@ export const createApplicationSchema = z.object({
 
 /** Schema for updating an existing application (status transitions, notes, score) */
 export const updateApplicationSchema = z.object({
-  status: z.enum(['new', 'screening', 'interview', 'offer', 'hired', 'rejected']).optional(),
+  status: z.string().min(1).optional(),
   notes: z.string().max(5000).nullish(),
   score: z.number().int().min(0).max(100).nullish(),
 })
@@ -26,7 +26,7 @@ export const applicationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   jobId: z.string().min(1).optional(),
   candidateId: z.string().min(1).optional(),
-  status: z.enum(['new', 'screening', 'interview', 'offer', 'hired', 'rejected']).optional(),
+  status: z.string().min(1).optional(),
 })
 
 /** Reusable schema for `:id` route params */

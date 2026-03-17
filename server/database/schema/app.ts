@@ -11,6 +11,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 import { organization, user } from './auth'
+import type { PipelineConfig } from '~~/shared/status-transitions'
 
 // ─────────────────────────────────────────────
 // Enums
@@ -18,9 +19,7 @@ import { organization, user } from './auth'
 
 export const jobStatusEnum = pgEnum('job_status', ['draft', 'open', 'closed', 'archived'])
 export const jobTypeEnum = pgEnum('job_type', ['full_time', 'part_time', 'contract', 'internship'])
-export const applicationStatusEnum = pgEnum('application_status', [
-  'new', 'screening', 'interview', 'offer', 'hired', 'rejected',
-])
+// application_status was a pgEnum; converted to text in migration 0016 to allow custom stages
 export const documentTypeEnum = pgEnum('document_type', ['resume', 'cover_letter', 'other'])
 export const questionTypeEnum = pgEnum('question_type', [
   'short_text', 'long_text', 'single_select', 'multi_select',
@@ -85,7 +84,7 @@ export const application = pgTable('application', {
   organizationId: text('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' }),
   candidateId: text('candidate_id').notNull().references(() => candidate.id, { onDelete: 'cascade' }),
   jobId: text('job_id').notNull().references(() => job.id, { onDelete: 'cascade' }),
-  status: applicationStatusEnum('status').notNull().default('new'),
+  status: text('status').notNull().default('new'),
   score: integer('score'),
   notes: text('notes'),
   coverLetterText: text('cover_letter_text'),
@@ -213,6 +212,31 @@ export const joinRequest = pgTable('join_request', {
 // ─────────────────────────────────────────────
 // Collaboration: Comments
 // ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// Org Settings (pipeline config, etc.)
+// ─────────────────────────────────────────────
+
+export interface PipelineStage {
+  id: string
+  label: string
+  terminal: boolean
+  builtin: boolean
+}
+
+export interface PipelineConfig {
+  stages: PipelineStage[]
+}
+
+/**
+ * Per-org settings not managed by Better Auth.
+ * One row per organization (upserted on first write).
+ */
+export const orgSettings = pgTable('org_settings', {
+  organizationId: text('organization_id').primaryKey().references(() => organization.id, { onDelete: 'cascade' }),
+  pipelineConfig: jsonb('pipeline_config').$type<PipelineConfig>(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
 
 // ─────────────────────────────────────────────
 // Calendar Integrations
