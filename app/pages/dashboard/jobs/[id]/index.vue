@@ -297,9 +297,6 @@ const { data: activityLogData } = useFetch('/api/activity-log', {
 })
 const activityItems = computed(() => activityLogData.value?.data ?? [])
 
-const { tasks, openTasksCount, createTask, toggleTask, deleteTask } =
-  useApplicationTasks(currentApplicationId)
-
 // ─────────────────────────────────────────────
 // Candidate links
 // ─────────────────────────────────────────────
@@ -439,6 +436,9 @@ type SwipeApplicationDetail = {
 }
 
 const currentApplicationId = ref('')
+
+const { tasks, openTasksCount, createTask, toggleTask, deleteTask } =
+  useApplicationTasks(currentApplicationId)
 
 watch(currentSummary, (summary) => {
   if (!summary?.id) return
