@@ -26,11 +26,16 @@ export default defineEventHandler(async (event) => {
 
   // Validate status transition if status is being changed
   if (body.status && body.status !== current.status) {
-    const settings = await db.query.orgSettings.findFirst({
-      where: eq(orgSettings.organizationId, orgId),
-      columns: { pipelineConfig: true },
-    })
-    const stages = settings?.pipelineConfig?.stages ?? DEFAULT_PIPELINE_STAGES
+    let stages = DEFAULT_PIPELINE_STAGES
+    try {
+      const settings = await db.query.orgSettings.findFirst({
+        where: eq(orgSettings.organizationId, orgId),
+        columns: { pipelineConfig: true },
+      })
+      stages = settings?.pipelineConfig?.stages ?? DEFAULT_PIPELINE_STAGES
+    } catch (e) {
+      console.error('[pipeline-config] Falling back to defaults:', e)
+    }
     const transitions = computeTransitions(stages)
     const allowed = transitions[current.status] ?? []
     if (!allowed.includes(body.status)) {

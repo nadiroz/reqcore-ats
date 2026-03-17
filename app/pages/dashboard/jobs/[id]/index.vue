@@ -189,21 +189,11 @@ const filteredApplications = computed(() => {
   })
 })
 
-type StatusCountMap = {
-  new: number
-  screening: number
-  interview: number
-  offer: number
-  hired: number
-  rejected: number
-}
-
 const statusCounts = computed(() => {
-  const counts: StatusCountMap = { new: 0, screening: 0, interview: 0, offer: 0, hired: 0, rejected: 0 }
-  for (const application of applications.value) {
-    if (application.status in counts) {
-      counts[application.status as PipelineStatus] += 1
-    }
+  const counts: Record<string, number> = {}
+  for (const s of pipelineStages.value) counts[s.id] = 0
+  for (const app of applications.value) {
+    counts[app.status] = (counts[app.status] ?? 0) + 1
   }
   return counts
 })
@@ -364,14 +354,6 @@ useSeoMeta({
 // Application status transitions
 // ─────────────────────────────────────────────
 
-const statusBadgeClasses: Record<string, string> = {
-  new: 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-400',
-  screening: 'bg-info-50 text-info-700 dark:bg-info-950 dark:text-info-400',
-  interview: 'bg-warning-50 text-warning-700 dark:bg-warning-950 dark:text-warning-400',
-  offer: 'bg-success-50 text-success-700 dark:bg-success-950 dark:text-success-400',
-  hired: 'bg-success-100 text-success-800 dark:bg-success-900 dark:text-success-300',
-  rejected: 'bg-surface-100 text-surface-500 dark:bg-surface-800 dark:text-surface-400',
-}
 
 const transitionLabels: Record<string, string> = {
   new: 'Re-open',
@@ -455,6 +437,30 @@ function selectCandidate(index: number) {
 }
 
 const isMutating = ref(false)
+const statusError = ref<string | null>(null)
+
+function stageColorClass(stageId: string, variant: 'dot' | 'badge'): string {
+  const stages = pipelineStages.value
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stage = stages.find((s: any) => s.id === stageId)
+  const dots = ['bg-brand-500', 'bg-info-500', 'bg-warning-500', 'bg-success-500']
+  const badges = [
+    'bg-brand-50 text-brand-700 ring-brand-200 dark:bg-brand-950/50 dark:text-brand-300 dark:ring-brand-800',
+    'bg-info-50 text-info-700 ring-info-200 dark:bg-info-950/50 dark:text-info-300 dark:ring-info-800',
+    'bg-warning-50 text-warning-700 ring-warning-200 dark:bg-warning-950/50 dark:text-warning-300 dark:ring-warning-800',
+    'bg-success-50 text-success-700 ring-success-200 dark:bg-success-950/50 dark:text-success-300 dark:ring-success-800',
+  ]
+  const grey = variant === 'dot'
+    ? 'bg-surface-400 dark:bg-surface-500'
+    : 'bg-surface-100 text-surface-500 ring-surface-200 dark:bg-surface-800/50 dark:text-surface-400 dark:ring-surface-700'
+  if (!stage || stageId === 'rejected') return grey
+  if (stage.terminal) return variant === 'dot'
+    ? 'bg-success-600 dark:bg-success-300'
+    : 'bg-success-100 text-success-800 ring-success-300 dark:bg-success-900/50 dark:text-success-200 dark:ring-success-700'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const idx = stages.filter((s: any) => !s.terminal).findIndex((s: any) => s.id === stageId) % 4
+  return variant === 'dot' ? (dots[idx] ?? grey) : (badges[idx] ?? grey)
+}
 
 // ─────────────────────────────────────────────
 // Interview scheduling sidebar
@@ -773,7 +779,8 @@ async function changeStatus(status: string) {
     }
   } catch (err: any) {
     if (handlePreviewReadOnlyError(err)) return
-    alert(err?.data?.statusMessage ?? 'Failed to update status')
+    statusError.value = err?.data?.statusMessage ?? 'Failed to update status'
+    setTimeout(() => { statusError.value = null }, 6000)
   } finally {
     isMutating.value = false
   }
@@ -1127,6 +1134,22 @@ function closeDocPreview() {
     </div>
 
     <template v-else-if="jobData">
+      <!-- Status error toast -->
+      <Transition name="slide-down">
+        <div
+          v-if="statusError"
+          class="pointer-events-auto fixed left-1/2 top-4 z-[200] -translate-x-1/2 flex items-center gap-3 rounded-xl border border-danger-200 bg-white px-4 py-3 shadow-lg dark:border-danger-800/60 dark:bg-surface-900"
+        >
+          <span class="text-sm font-medium text-danger-700 dark:text-danger-300">{{ statusError }}</span>
+          <button
+            class="ml-1 flex cursor-pointer items-center justify-center rounded-md p-0.5 text-danger-400 hover:bg-danger-50 hover:text-danger-600 dark:hover:bg-danger-950/60 transition-colors"
+            @click="statusError = null"
+          >
+            <X class="size-3.5" />
+          </button>
+        </div>
+      </Transition>
+
       <!-- Quick actions teleported to sub-nav bar -->
       <Teleport to="#job-sub-nav-actions">
         <div class="flex items-center gap-2">
@@ -1240,14 +1263,7 @@ function closeDocPreview() {
               : 'text-surface-500 hover:bg-surface-50 hover:text-surface-700 dark:text-surface-400 dark:hover:bg-surface-800/60 dark:hover:text-surface-200'"
             @click="setFocusStatus(status)"
           >
-            <span class="pipeline-status-dot size-2 rounded-full" :class="{
-              'bg-brand-500 dark:bg-brand-400': status === 'new',
-              'bg-info-500 dark:bg-info-400': status === 'screening',
-              'bg-warning-500 dark:bg-warning-400': status === 'interview',
-              'bg-success-500 dark:bg-success-400': status === 'offer',
-              'bg-success-600 dark:bg-success-300': status === 'hired',
-              'bg-surface-400 dark:bg-surface-500': status === 'rejected',
-            }" />
+            <span class="pipeline-status-dot size-2 rounded-full" :class="stageColorClass(status, 'dot')" />
             {{ stageLabel(status) }}
             <span
               class="inline-flex min-w-[20px] items-center justify-center rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums transition-colors duration-200"
@@ -1441,7 +1457,7 @@ function closeDocPreview() {
                 {{ (searchTerm.trim() || hasActiveFilters) ? 'No matching candidates' : `No candidates yet` }}
               </p>
               <p class="mt-1 text-xs text-surface-400 dark:text-surface-500">
-                {{ (searchTerm.trim() || hasActiveFilters) ? 'Try adjusting your search or filters.' : `No one in ${formatStatusLabel(focusStatus)} stage.` }}
+                {{ (searchTerm.trim() || hasActiveFilters) ? 'Try adjusting your search or filters.' : `No one in ${stageLabel(focusStatus)} stage.` }}
               </p>
               <button
                 v-if="hasActiveFilters"
@@ -1507,7 +1523,7 @@ function closeDocPreview() {
               <UserRound class="size-7 text-surface-400 dark:text-surface-500" />
             </div>
             <p class="text-base font-semibold text-surface-700 dark:text-surface-200">
-              No candidates in {{ formatStatusLabel(focusStatus) }}
+              No candidates in {{ stageLabel(focusStatus) }}
             </p>
             <p class="mt-1.5 text-sm text-surface-500 dark:text-surface-400 max-w-xs">
               Switch to another pipeline stage to review candidates.
@@ -1550,16 +1566,9 @@ function closeDocPreview() {
                       </h2>
                       <span
                         class="inline-flex shrink-0 items-center rounded-lg px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ring-1 ring-inset"
-                        :class="{
-                          'bg-brand-50 text-brand-700 ring-brand-200 dark:bg-brand-950/50 dark:text-brand-300 dark:ring-brand-800': currentSummary.status === 'new',
-                          'bg-info-50 text-info-700 ring-info-200 dark:bg-info-950/50 dark:text-info-300 dark:ring-info-800': currentSummary.status === 'screening',
-                          'bg-warning-50 text-warning-700 ring-warning-200 dark:bg-warning-950/50 dark:text-warning-300 dark:ring-warning-800': currentSummary.status === 'interview',
-                          'bg-success-50 text-success-700 ring-success-200 dark:bg-success-950/50 dark:text-success-300 dark:ring-success-800': currentSummary.status === 'offer',
-                          'bg-success-100 text-success-800 ring-success-300 dark:bg-success-900/50 dark:text-success-200 dark:ring-success-700': currentSummary.status === 'hired',
-                          'bg-surface-100 text-surface-500 ring-surface-200 dark:bg-surface-800/50 dark:text-surface-400 dark:ring-surface-700': currentSummary.status === 'rejected',
-                        }"
+                        :class="stageColorClass(currentSummary.status, 'badge')"
                       >
-                        {{ currentSummary.status }}
+                        {{ stageLabel(currentSummary.status) }}
                       </span>
                     </div>
                     <div class="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-surface-500 dark:text-surface-400">
