@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.995.0",
+    "@novu/api": "^3.14.1",
     "@nuxtjs/i18n": "^10.2.3",
     "@nuxtjs/mdc": "^0.20.1",
     "@posthog/nuxt": "^1.5.82",

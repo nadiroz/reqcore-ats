@@ -1,7 +1,8 @@
 import { eq, and } from 'drizzle-orm'
-import { application, orgSettings } from '../../database/schema'
+import { application, orgSettings, member } from '../../database/schema'
 import { applicationIdParamSchema, updateApplicationSchema } from '../../utils/schemas/application'
 import { computeTransitions, DEFAULT_PIPELINE_STAGES } from '~~/shared/status-transitions'
+import { createNotification } from '../../utils/notify'
 
 /**
  * PATCH /api/applications/:id
@@ -74,6 +75,27 @@ export default defineEventHandler(async (event) => {
       ? { from: current.status, to: body.status }
       : undefined,
   })
+
+  // Notify org members of status changes (fire-and-forget)
+  if (body.status && body.status !== current.status) {
+    db.query.member.findMany({
+      where: eq(member.organizationId, orgId),
+      columns: { userId: true },
+    }).then((members) => {
+      for (const m of members) {
+        if (m.userId === session.user.id) continue
+        createNotification({
+          orgId,
+          userId: m.userId,
+          type: 'application_status_changed',
+          title: `Application moved to ${body.status}`,
+          body: `Status changed from ${current.status} to ${body.status}`,
+          resourceType: 'application',
+          resourceId: id,
+        }).catch(() => {})
+      }
+    }).catch(() => {})
+  }
 
   return updated
 })

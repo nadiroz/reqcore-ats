@@ -1,6 +1,7 @@
 import { eq, and } from 'drizzle-orm'
-import { comment, candidate, application, job } from '../../database/schema'
+import { comment, candidate, application, job, member } from '../../database/schema'
 import { createCommentSchema } from '../../utils/schemas/comment'
+import { createNotification } from '../../utils/notify'
 
 /**
  * POST /api/comments
@@ -70,6 +71,26 @@ export default defineEventHandler(async (event) => {
     resourceId: body.targetId,
     metadata: { commentId: created.id },
   })
+
+  // Notify org members of new comment (fire-and-forget)
+  db.query.member.findMany({
+    where: eq(member.organizationId, orgId),
+    columns: { userId: true },
+  }).then((members) => {
+    const preview = body.body.length > 100 ? body.body.slice(0, 100) + '...' : body.body
+    for (const m of members) {
+      if (m.userId === session.user.id) continue
+      createNotification({
+        orgId,
+        userId: m.userId,
+        type: 'comment_added',
+        title: `New comment on ${body.targetType}`,
+        body: preview,
+        resourceType: body.targetType,
+        resourceId: body.targetId,
+      }).catch(() => {})
+    }
+  }).catch(() => {})
 
   setResponseStatus(event, 201)
   return created

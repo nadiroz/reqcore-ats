@@ -1,6 +1,7 @@
 import { eq, and } from 'drizzle-orm'
 import { z } from 'zod'
 import { application, stageApprovalRequest } from '../../../../database/schema'
+import { createNotification } from '../../../../utils/notify'
 import { applicationIdParamSchema } from '../../../../utils/schemas/application'
 
 const createApprovalRequestSchema = z.object({
@@ -47,6 +48,19 @@ export default defineEventHandler(async (event) => {
     resourceId: applicationId,
     metadata: { approvalRequested: true, toStage: body.toStage },
   })
+
+  // Notify the assigned approver (fire-and-forget)
+  if (body.assignedToId) {
+    createNotification({
+      orgId,
+      userId: body.assignedToId,
+      type: 'approval_requested',
+      title: `Approval needed: move to ${body.toStage}`,
+      body: body.note ?? undefined,
+      resourceType: 'application',
+      resourceId: applicationId,
+    }).catch(() => {})
+  }
 
   setResponseStatus(event, 201)
   return created

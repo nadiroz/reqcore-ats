@@ -1,6 +1,7 @@
 import { eq, and } from 'drizzle-orm'
 import { z } from 'zod'
 import { stageApprovalRequest, application } from '../../../../database/schema'
+import { createNotification } from '../../../../utils/notify'
 
 const resolveSchema = z.object({
   status: z.enum(['approved', 'declined']),
@@ -30,7 +31,7 @@ export default defineEventHandler(async (event) => {
       eq(stageApprovalRequest.applicationId, applicationId),
       eq(stageApprovalRequest.organizationId, orgId),
     ),
-    columns: { id: true, status: true, fromStage: true, toStage: true, applicationId: true },
+    columns: { id: true, status: true, fromStage: true, toStage: true, applicationId: true, requestedById: true },
   })
 
   if (!request) {
@@ -67,6 +68,20 @@ export default defineEventHandler(async (event) => {
       resourceId: applicationId,
       metadata: { from: request.fromStage, to: request.toStage, viaApproval: true },
     })
+  }
+
+  // Notify the requester of the decision (fire-and-forget)
+  if (request.requestedById && request.requestedById !== session.user.id) {
+    const decision = body.status === 'approved' ? 'approved' : 'declined'
+    createNotification({
+      orgId,
+      userId: request.requestedById,
+      type: 'approval_resolved',
+      title: `Approval ${decision}: move to ${request.toStage}`,
+      body: body.resolverNote ?? undefined,
+      resourceType: 'application',
+      resourceId: applicationId,
+    }).catch(() => {})
   }
 
   return updated

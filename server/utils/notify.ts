@@ -1,4 +1,5 @@
 import { notification } from '../database/schema'
+import { getNovu } from '../lib/novu'
 
 interface CreateNotificationOpts {
   orgId: string
@@ -11,9 +12,8 @@ interface CreateNotificationOpts {
 }
 
 /**
- * Create an in-app notification for a specific user.
- * Inserts into the notification table. Novu integration (email/push)
- * can be wired here when configured.
+ * Create an in-app notification and optionally trigger Novu for
+ * multi-channel delivery (email, push) when configured.
  */
 export async function createNotification(opts: CreateNotificationOpts) {
   const [row] = await db
@@ -29,13 +29,24 @@ export async function createNotification(opts: CreateNotificationOpts) {
     })
     .returning({ id: notification.id })
 
-  // Future: trigger Novu workflow for email/push delivery
-  // if (novu) {
-  //   await novu.trigger('in-app-notification', {
-  //     to: { subscriberId: opts.userId },
-  //     payload: { title: opts.title, body: opts.body },
-  //   })
-  // }
+  const novu = getNovu()
+  if (novu) {
+    try {
+      await novu.trigger({
+        workflowId: 'in-app-notification',
+        to: { subscriberId: opts.userId },
+        payload: {
+          title: opts.title,
+          body: opts.body ?? '',
+          type: opts.type,
+          resourceType: opts.resourceType ?? '',
+          resourceId: opts.resourceId ?? '',
+        },
+      })
+    } catch (err) {
+      console.error('[novu] Failed to trigger notification:', err)
+    }
+  }
 
   return row
 }
