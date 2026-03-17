@@ -767,7 +767,7 @@ useSeoMeta({
           </div>
 
           <!-- Terminal stages (hired/rejected) -->
-          <template v-for="stage in pipelineStages.filter(s => s.type === 'terminal' || s.terminal)" :key="`terminal-${stage.id}`">
+          <template v-for="stage in pipelineStages.filter(s => s.terminal)" :key="`terminal-${stage.id}`">
             <div class="flex w-60 shrink-0 flex-col border-r border-surface-200/80 dark:border-surface-800/60 bg-surface-50/30 dark:bg-surface-950/20">
               <div class="shrink-0 px-3 py-2.5 border-b border-surface-100 dark:border-surface-800/40">
                 <div class="flex items-center justify-between">

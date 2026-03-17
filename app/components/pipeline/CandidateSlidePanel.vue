@@ -384,32 +384,42 @@ const showTransitionDropdown = ref(false)
 
       <!-- Comment input (pinned bottom) -->
       <div class="shrink-0 border-t border-surface-200/80 dark:border-surface-800/60 p-3">
+        <!-- Mode toggle pills -->
+        <div class="mb-2 flex gap-1">
+          <button
+            class="cursor-pointer rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors"
+            :class="inputMode === 'comment'
+              ? 'bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300'
+              : 'text-surface-400 hover:text-surface-600 hover:bg-surface-100 dark:text-surface-500 dark:hover:text-surface-300 dark:hover:bg-surface-800'"
+            @click="inputMode = 'comment'"
+          >
+            Comment
+          </button>
+          <button
+            class="cursor-pointer rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors"
+            :class="inputMode === 'task'
+              ? 'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300'
+              : 'text-surface-400 hover:text-surface-600 hover:bg-surface-100 dark:text-surface-500 dark:hover:text-surface-300 dark:hover:bg-surface-800'"
+            @click="inputMode = 'task'"
+          >
+            Task
+          </button>
+        </div>
         <div class="flex items-start gap-2">
           <textarea
             v-model="commentBody"
             rows="1"
-            :placeholder="inputMode === 'task' ? 'Add a task\u2026' : 'Write a comment\u2026'"
-            class="flex-1 resize-none rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-xs text-surface-800 placeholder:text-surface-400 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-400/30 dark:border-surface-700 dark:bg-surface-800/60 dark:text-surface-200 dark:placeholder:text-surface-500"
+            :placeholder="inputMode === 'task' ? 'Add a task...' : 'Write a comment...'"
+            class="flex-1 resize-none rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm text-surface-900 placeholder:text-surface-400 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400/30 dark:border-surface-700 dark:bg-surface-900 dark:text-surface-100 dark:placeholder:text-surface-500 dark:focus:border-brand-500 dark:focus:ring-brand-500/20"
             @keydown.enter.exact.prevent="handleSubmit"
           />
-          <div class="flex flex-col gap-1">
-            <button
-              :disabled="!commentBody.trim() || isSubmitting"
-              class="flex cursor-pointer items-center rounded-lg bg-brand-600 px-2.5 py-2 text-[10px] font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
-              @click="handleSubmit"
-            >
-              {{ inputMode === 'task' ? 'Task' : 'Send' }}
-            </button>
-            <button
-              class="cursor-pointer rounded-md px-1.5 py-0.5 text-[9px] font-medium transition-colors"
-              :class="inputMode === 'task'
-                ? 'text-warning-600 dark:text-warning-400'
-                : 'text-surface-400 hover:text-surface-600 dark:hover:text-surface-300'"
-              @click="inputMode = inputMode === 'task' ? 'comment' : 'task'"
-            >
-              {{ inputMode === 'task' ? 'Comment' : 'Task' }}
-            </button>
-          </div>
+          <button
+            :disabled="!commentBody.trim() || isSubmitting"
+            class="flex cursor-pointer items-center rounded-lg bg-brand-600 px-2.5 py-2 text-[10px] font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+            @click="handleSubmit"
+          >
+            {{ inputMode === 'task' ? 'Add' : 'Send' }}
+          </button>
         </div>
       </div>
     </div>

@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install dependencies first (layer-cached unless package.json changes)
-COPY package*.json ./
+COPY package*.json .npmrc ./
 RUN npm ci
 
 # Copy source and build
