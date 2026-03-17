@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { User, Briefcase, Calendar, Clock, Hash, FileText, MessageSquare, Send, Pencil, Trash2, Globe, Github, Linkedin, X } from 'lucide-vue-next'
+import { User, Briefcase, Calendar, Clock, Hash, FileText, MessageSquare, Send, Pencil, Trash2, Globe, Github, Linkedin, X, ClipboardCheck, ChevronDown, ChevronUp, Save } from 'lucide-vue-next'
+import type { AssessmentDecision } from '~~/shared/assessment-types'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
 
 definePageMeta({
@@ -205,6 +206,106 @@ async function submitAddLink() {
 }
 
 // ─────────────────────────────────────────────
+// Assessment
+// ─────────────────────────────────────────────
+
+const {
+  assessment,
+  template: assessmentTemplate,
+  isLoading: assessmentLoading,
+  startAssessment,
+  saveScores,
+  saveBehavioralNotes,
+  saveDecision,
+  updateStatus,
+  advanceToRound2,
+} = useAssessment(applicationId)
+
+const assessmentExpanded = ref(true)
+const isSavingAssessment = ref(false)
+const assessmentSaveError = ref<string | null>(null)
+
+// Local score editing state
+const localScores = ref<Record<string, { score: number; notes: string }[]>>({})
+const localBehavioralNotes = ref('')
+const localDecision = ref<AssessmentDecision>('pending')
+const localTrainabilityNotes = ref('')
+
+watch(assessment, (val) => {
+  if (!val) return
+  localBehavioralNotes.value = val.behavioralNotes ?? ''
+  localDecision.value = (val.decision as AssessmentDecision) ?? 'pending'
+  localTrainabilityNotes.value = val.trainabilityNotes ?? ''
+
+  // Initialize local scores from existing
+  const s: Record<string, { score: number; notes: string }[]> = {}
+  if (val.scores?.round1?.tasks) {
+    s.round1 = val.scores.round1.tasks.map(t => ({ score: t.score, notes: t.notes }))
+  }
+  if (val.scores?.round2?.tasks) {
+    s.round2 = val.scores.round2.tasks.map(t => ({ score: t.score, notes: t.notes }))
+  }
+  localScores.value = s
+}, { immediate: true })
+
+function initLocalScoresForRound(roundKey: string, taskCount: number) {
+  if (!localScores.value[roundKey]) {
+    localScores.value[roundKey] = Array.from({ length: taskCount }, () => ({ score: 0, notes: '' }))
+  }
+}
+
+async function handleSaveAssessment() {
+  isSavingAssessment.value = true
+  assessmentSaveError.value = null
+  try {
+    const scores: Record<string, { tasks: { score: number; notes: string }[] }> = {}
+    if (localScores.value.round1) scores.round1 = { tasks: localScores.value.round1 }
+    if (localScores.value.round2) scores.round2 = { tasks: localScores.value.round2 }
+
+    await saveScores(scores)
+    await saveBehavioralNotes(localBehavioralNotes.value || null)
+    await saveDecision(localDecision.value, localTrainabilityNotes.value || null)
+  }
+  catch (err: any) {
+    assessmentSaveError.value = err?.data?.statusMessage ?? 'Failed to save assessment.'
+  }
+  finally {
+    isSavingAssessment.value = false
+  }
+}
+
+async function handleStartAssessment() {
+  isSavingAssessment.value = true
+  assessmentSaveError.value = null
+  try {
+    await startAssessment()
+  }
+  catch (err: any) {
+    assessmentSaveError.value = err?.data?.statusMessage ?? 'Failed to start assessment.'
+  }
+  finally {
+    isSavingAssessment.value = false
+  }
+}
+
+const assessmentStatusLabels: Record<string, string> = {
+  not_started: 'Not Started',
+  round1_sent: 'Round 1 Sent',
+  round1_submitted: 'Round 1 Submitted',
+  round1_evaluated: 'Round 1 Evaluated',
+  round2_sent: 'Round 2 Sent',
+  round2_submitted: 'Round 2 Submitted',
+  completed: 'Completed',
+}
+
+const decisionLabels: Record<string, string> = {
+  hire: 'Hire',
+  no_hire: 'No Hire',
+  borderline: 'Borderline',
+  pending: 'Pending',
+}
+
+// ─────────────────────────────────────────────
 // Display helpers
 // ─────────────────────────────────────────────
 
@@ -359,6 +460,162 @@ function formatResponseValue(value: unknown): string {
               {{ application.notes }}
             </p>
             <p v-else class="text-sm text-surface-400 italic">No notes yet.</p>
+          </div>
+
+          <!-- Assessment -->
+          <div class="rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5">
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center gap-2">
+                <ClipboardCheck class="size-4 text-brand-500 dark:text-brand-400" />
+                <h2 class="text-sm font-semibold text-surface-700 dark:text-surface-200">Assessment</h2>
+                <span
+                  v-if="assessment"
+                  class="text-xs rounded-full px-2 py-0.5 bg-surface-100 dark:bg-surface-800 text-surface-500 dark:text-surface-400"
+                >{{ assessmentStatusLabels[assessment.status] ?? assessment.status }}</span>
+              </div>
+              <button
+                v-if="assessment"
+                class="text-surface-400 hover:text-surface-600 transition-colors"
+                @click="assessmentExpanded = !assessmentExpanded"
+              >
+                <ChevronUp v-if="assessmentExpanded" class="size-4" />
+                <ChevronDown v-else class="size-4" />
+              </button>
+            </div>
+
+            <!-- No assessment yet -->
+            <div v-if="!assessment && !assessmentLoading">
+              <p class="text-sm text-surface-500 dark:text-surface-400 mb-3">
+                No assessment started for this application.
+                <span v-if="!assessmentTemplate"> No template configured for this job.</span>
+              </p>
+              <button
+                v-if="assessmentTemplate"
+                :disabled="isSavingAssessment"
+                class="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                @click="handleStartAssessment"
+              >
+                {{ isSavingAssessment ? 'Starting…' : 'Start Assessment' }}
+              </button>
+            </div>
+
+            <!-- Assessment scoring (expanded) -->
+            <div v-else-if="assessment && assessmentExpanded">
+              <!-- Score error -->
+              <div v-if="assessmentSaveError" class="mb-3 rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-xs text-danger-700">
+                {{ assessmentSaveError }}
+              </div>
+
+              <!-- Round scoring -->
+              <div v-if="assessmentTemplate" class="space-y-4 mb-4">
+                <div
+                  v-for="(round, rIdx) in assessmentTemplate.config.rounds"
+                  :key="rIdx"
+                  class="rounded-lg border border-surface-100 dark:border-surface-800 p-3"
+                >
+                  <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-xs font-semibold text-surface-600 dark:text-surface-300">{{ round.label }}</h3>
+                    <span
+                      v-if="rIdx === 0 && assessment.currentRound === 1 && ['round1_submitted', 'round1_evaluated'].includes(assessment.status)"
+                      class="text-[11px] text-brand-600 dark:text-brand-400"
+                    >Ready to score</span>
+                    <button
+                      v-if="rIdx === 0 && assessment.currentRound === 1 && assessment.status === 'round1_evaluated'"
+                      class="text-xs text-brand-600 hover:text-brand-700 dark:text-brand-400 font-medium"
+                      @click="advanceToRound2"
+                    >Advance to Round 2</button>
+                  </div>
+
+                  <!-- Task scores -->
+                  <div class="space-y-2">
+                    <div
+                      v-for="(task, tIdx) in round.tasks"
+                      :key="tIdx"
+                      class="flex items-start gap-3 py-2 border-b border-surface-50 dark:border-surface-800 last:border-0"
+                    >
+                      <!-- Make sure local scores array exists -->
+                      {{ void initLocalScoresForRound(`round${rIdx + 1}`, round.tasks.length) }}
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1">
+                          <span class="text-xs font-medium text-surface-700 dark:text-surface-300">{{ task.label }}</span>
+                          <span class="text-[11px] text-surface-400">({{ task.weight }}%)</span>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-2 shrink-0">
+                        <input
+                          v-if="localScores[`round${rIdx + 1}`]?.[tIdx]"
+                          v-model.number="localScores[`round${rIdx + 1}`][tIdx].score"
+                          type="number"
+                          min="0"
+                          max="10"
+                          step="0.5"
+                          class="w-14 rounded border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 px-2 py-1 text-xs text-center text-surface-700 dark:text-surface-300 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                        />
+                        <span class="text-[11px] text-surface-400">/ 10</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Overall score display -->
+              <div v-if="assessment.overallScore != null" class="flex items-center gap-2 mb-3 p-2 rounded-lg bg-surface-50 dark:bg-surface-800/50">
+                <span class="text-xs font-medium text-surface-600 dark:text-surface-300">Weighted Score:</span>
+                <span class="text-sm font-bold" :class="assessment.overallScore >= 7 ? 'text-success-600' : assessment.overallScore >= 5 ? 'text-warning-600' : 'text-danger-600'">
+                  {{ assessment.overallScore.toFixed(1) }} / 10
+                </span>
+              </div>
+
+              <!-- Behavioral notes -->
+              <div class="mb-3">
+                <label class="text-xs font-medium text-surface-600 dark:text-surface-400 mb-1 block">Behavioral Notes</label>
+                <textarea
+                  v-model="localBehavioralNotes"
+                  rows="2"
+                  placeholder="Questions before starting, deadline adherence, communication style…"
+                  class="w-full resize-none rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 px-3 py-2 text-sm text-surface-700 dark:text-surface-300 placeholder:text-surface-400 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-colors"
+                />
+              </div>
+
+              <!-- Decision -->
+              <div class="mb-3">
+                <label class="text-xs font-medium text-surface-600 dark:text-surface-400 mb-1.5 block">Decision</label>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    v-for="(label, key) in decisionLabels"
+                    :key="key"
+                    class="rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors"
+                    :class="localDecision === key
+                      ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950/50 dark:text-brand-300 dark:border-brand-700'
+                      : 'border-surface-200 dark:border-surface-700 text-surface-500 dark:text-surface-400 hover:border-surface-300 dark:hover:border-surface-600'"
+                    @click="localDecision = key as AssessmentDecision"
+                  >
+                    {{ label }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Trainability notes (borderline) -->
+              <div v-if="localDecision === 'borderline'" class="mb-3">
+                <label class="text-xs font-medium text-surface-600 dark:text-surface-400 mb-1 block">Trainability Notes</label>
+                <textarea
+                  v-model="localTrainabilityNotes"
+                  rows="2"
+                  placeholder="What skills are trainable? What is the gap size?"
+                  class="w-full resize-none rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 px-3 py-2 text-sm text-surface-700 dark:text-surface-300 placeholder:text-surface-400 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-colors"
+                />
+              </div>
+
+              <!-- Save -->
+              <button
+                :disabled="isSavingAssessment"
+                class="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                @click="handleSaveAssessment"
+              >
+                <Save class="size-3.5" />
+                {{ isSavingAssessment ? 'Saving…' : 'Save Assessment' }}
+              </button>
+            </div>
           </div>
 
           <!-- Application Responses -->

@@ -5,7 +5,7 @@ import {
   UserPlus, Pencil, Trash2, MoreHorizontal, Globe, ChevronDown, X,
   Video, Building2, Code2, UsersRound, Save, Check, MapPin, Users, Plus,
   CheckCircle2, XCircle, AlertTriangle, ArrowUpDown, ListFilter,
-  Maximize2, Minimize2, Github, Linkedin,
+  Maximize2, Minimize2, Github, Linkedin, Square, SquareCheckBig,
 } from 'lucide-vue-next'
 import { z } from 'zod'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
@@ -297,8 +297,8 @@ const { data: activityLogData } = useFetch('/api/activity-log', {
 })
 const activityItems = computed(() => activityLogData.value?.data ?? [])
 
-// Task stub — fully wired in Wave G when useApplicationTasks + DB table are created
-const openTasksCount = computed(() => 0)
+const { tasks, openTasksCount, createTask, toggleTask, deleteTask } =
+  useApplicationTasks(currentApplicationId)
 
 // ─────────────────────────────────────────────
 // Candidate links
@@ -338,11 +338,13 @@ async function submitAddLink() {
 
 type FeedItem =
   | { kind: 'comment'; ts: string; data: typeof comments.value[0] }
+  | { kind: 'task'; ts: string; data: typeof tasks.value[0] }
   | { kind: 'history'; ts: string; data: typeof activityItems.value[0] }
 
 const feedAll = computed((): FeedItem[] => {
   const items: FeedItem[] = [
     ...comments.value.map(c => ({ kind: 'comment' as const, ts: c.createdAt, data: c })),
+    ...tasks.value.map(t => ({ kind: 'task' as const, ts: t.createdAt, data: t })),
     ...activityItems.value.map(a => ({ kind: 'history' as const, ts: String(a.createdAt), data: a })),
   ]
   return items.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
@@ -351,6 +353,7 @@ const feedAll = computed((): FeedItem[] => {
 const feedFiltered = computed(() => {
   const sub = activitySubTab.value
   if (sub === 'comments') return feedAll.value.filter(i => i.kind === 'comment')
+  if (sub === 'tasks') return feedAll.value.filter(i => i.kind === 'task')
   if (sub === 'history') return feedAll.value.filter(i => i.kind === 'history')
   return feedAll.value
 })
@@ -366,7 +369,11 @@ async function submitActivityInput() {
   if (!body) return
   isSubmittingComment.value = true
   try {
-    await createComment(body)
+    if (commentInputMode.value === 'task') {
+      await createTask(body)
+    } else {
+      await createComment(body)
+    }
     commentBody.value = ''
   } finally {
     isSubmittingComment.value = false
@@ -2023,6 +2030,38 @@ function closeDocPreview() {
                               @click="deleteComment(item.data.id)"
                             >Delete</button>
                           </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Task item -->
+                    <div v-else-if="item.kind === 'task'" class="flex items-start gap-3">
+                      <button
+                        class="flex size-7 shrink-0 items-center justify-center rounded-full transition-colors cursor-pointer"
+                        :class="item.data.completedAt
+                          ? 'bg-success-100 dark:bg-success-950/40'
+                          : 'bg-surface-100 dark:bg-surface-800 hover:bg-brand-50 dark:hover:bg-brand-950/30'"
+                        @click="toggleTask(item.data.id, !item.data.completedAt)"
+                      >
+                        <SquareCheckBig v-if="item.data.completedAt" class="size-3.5 text-success-600 dark:text-success-400" />
+                        <Square v-else class="size-3.5 text-surface-400 dark:text-surface-500" />
+                      </button>
+                      <div class="flex-1 min-w-0 pt-0.5">
+                        <span
+                          class="text-sm"
+                          :class="item.data.completedAt
+                            ? 'line-through text-surface-400 dark:text-surface-500'
+                            : 'text-surface-700 dark:text-surface-300'"
+                        >{{ item.data.title }}</span>
+                        <div class="flex items-center gap-2 mt-0.5">
+                          <span v-if="item.data.dueDate" class="text-[11px]" :class="!item.data.completedAt && new Date(item.data.dueDate) < new Date() ? 'text-danger-500' : 'text-surface-400 dark:text-surface-500'">
+                            Due {{ timeAgo(item.data.dueDate) }}
+                          </span>
+                          <span class="text-[11px] text-surface-400 dark:text-surface-500">{{ timeAgo(item.data.createdAt) }}</span>
+                          <button
+                            class="cursor-pointer text-[11px] text-danger-400 hover:text-danger-600 dark:hover:text-danger-300 transition-colors"
+                            @click="deleteTask(item.data.id)"
+                          >Delete</button>
                         </div>
                       </div>
                     </div>
