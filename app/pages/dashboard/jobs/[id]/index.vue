@@ -527,6 +527,52 @@ function selectCandidate(index: number) {
 const isMutating = ref(false)
 const statusError = ref<string | null>(null)
 
+// ─────────────────────────────────────────────
+// Transition modal + undo toast (Wave C)
+// ─────────────────────────────────────────────
+
+const transitionModal = ref<{ targetStatus: string; note: string } | null>(null)
+const pendingUndo = ref<{ applicationId: string; fromStatus: string; toStatus: string } | null>(null)
+let undoTimer: ReturnType<typeof setTimeout> | null = null
+
+const isTerminalTransition = computed(() =>
+  transitionModal.value
+    ? (pipelineStages.value.find((s: any) => s.id === transitionModal.value!.targetStatus)?.terminal ?? false)
+    : false
+)
+
+function openTransitionModal(nextStatus: string) {
+  transitionModal.value = { targetStatus: nextStatus, note: '' }
+}
+
+async function confirmTransition() {
+  if (!transitionModal.value || !currentSummary.value) return
+  const { targetStatus, note } = transitionModal.value
+  transitionModal.value = null
+  await changeStatus(targetStatus, note)
+}
+
+async function undoTransition() {
+  if (!pendingUndo.value) return
+  const { applicationId, fromStatus } = pendingUndo.value
+  pendingUndo.value = null
+  if (undoTimer) { clearTimeout(undoTimer); undoTimer = null }
+  isMutating.value = true
+  try {
+    await $fetch(`/api/applications/${applicationId}`, {
+      method: 'PATCH',
+      body: { status: fromStatus },
+    })
+    await refreshApps()
+  } catch (err: any) {
+    if (handlePreviewReadOnlyError(err)) return
+    statusError.value = err?.data?.statusMessage ?? 'Failed to undo'
+    setTimeout(() => { statusError.value = null }, 6000)
+  } finally {
+    isMutating.value = false
+  }
+}
+
 function stageColorClass(stageId: string, variant: 'dot' | 'badge'): string {
   const stages = pipelineStages.value
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -838,9 +884,10 @@ async function handleReschedule() {
   }
 }
 
-async function changeStatus(status: string) {
+async function changeStatus(status: string, note?: string) {
   if (!currentSummary.value || isMutating.value) return
   const applicationId = currentSummary.value.id
+  const previousStatus = currentSummary.value.status
 
   isMutating.value = true
 
@@ -850,8 +897,13 @@ async function changeStatus(status: string) {
       body: { status },
     })
 
+    // Post note as comment if provided
+    if (note?.trim()) {
+      await createComment(note.trim())
+    }
+
     track('pipeline_stage_changed', {
-      from_stage: currentSummary.value.status,
+      from_stage: previousStatus,
       to_stage: status,
     })
 
@@ -864,6 +916,14 @@ async function changeStatus(status: string) {
     const newLen = filteredApplications.value.length
     if (newLen > 0 && currentIndex.value >= newLen) {
       currentIndex.value = newLen - 1
+    }
+
+    // Show undo toast (8 seconds) for non-terminal transitions
+    const isTerminal = pipelineStages.value.find((s: any) => s.id === status)?.terminal
+    if (!isTerminal) {
+      if (undoTimer) clearTimeout(undoTimer)
+      pendingUndo.value = { applicationId, fromStatus: previousStatus, toStatus: status }
+      undoTimer = setTimeout(() => { pendingUndo.value = null }, 8000)
     }
   } catch (err: any) {
     if (handlePreviewReadOnlyError(err)) return
@@ -1232,6 +1292,30 @@ function closeDocPreview() {
           <button
             class="ml-1 flex cursor-pointer items-center justify-center rounded-md p-0.5 text-danger-400 hover:bg-danger-50 hover:text-danger-600 dark:hover:bg-danger-950/60 transition-colors"
             @click="statusError = null"
+          >
+            <X class="size-3.5" />
+          </button>
+        </div>
+      </Transition>
+
+      <!-- Undo toast -->
+      <Transition name="slide-down">
+        <div
+          v-if="pendingUndo"
+          class="pointer-events-auto fixed left-1/2 top-4 z-[200] -translate-x-1/2 flex items-center gap-3 rounded-xl border border-surface-200 bg-white px-4 py-3 shadow-lg dark:border-surface-700/60 dark:bg-surface-900"
+        >
+          <span class="text-sm text-surface-700 dark:text-surface-300">
+            Moved to <span class="font-semibold">{{ stageLabel(pendingUndo.toStatus) }}</span>
+          </span>
+          <button
+            class="cursor-pointer rounded-md bg-surface-100 px-2.5 py-1 text-xs font-semibold text-surface-700 hover:bg-surface-200 dark:bg-surface-800 dark:text-surface-300 dark:hover:bg-surface-700 transition-colors"
+            @click="undoTransition"
+          >
+            Undo
+          </button>
+          <button
+            class="flex cursor-pointer items-center justify-center rounded-md p-0.5 text-surface-400 hover:bg-surface-100 hover:text-surface-600 dark:hover:bg-surface-800 transition-colors"
+            @click="pendingUndo = null"
           >
             <X class="size-3.5" />
           </button>
@@ -1628,7 +1712,7 @@ function closeDocPreview() {
                   :disabled="isMutating"
                   class="cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm inline-flex items-center gap-1.5"
                   :class="transitionClasses[nextStatus] ?? 'border border-surface-300 text-surface-600 hover:bg-surface-50'"
-                  @click="nextStatus === 'interview' ? openInterviewScheduler() : changeStatus(nextStatus)"
+                  @click="nextStatus === 'interview' ? openInterviewScheduler() : openTransitionModal(nextStatus)"
                 >
                   {{ transitionLabels[nextStatus] ?? nextStatus }}
                   <kbd class="inline-flex items-center justify-center rounded px-1 py-0.5 text-[10px] font-mono leading-none opacity-60 bg-black/10 dark:bg-white/10 min-w-[16px]">{{ idx + 1 }}</kbd>
@@ -2381,6 +2465,55 @@ function closeDocPreview() {
     <!-- ═══════════════════════════════════════ -->
     <!-- MODALS                                   -->
     <!-- ═══════════════════════════════════════ -->
+
+    <!-- Transition Confirmation Modal -->
+    <Teleport :to="teleportTarget">
+      <div v-if="transitionModal" class="fixed inset-0 z-50 flex items-center justify-center">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="!isTerminalTransition && (transitionModal = null)" />
+        <div class="relative bg-white dark:bg-surface-900 rounded-2xl shadow-2xl ring-1 ring-surface-200/80 dark:ring-surface-700/60 p-6 max-w-sm w-full mx-4">
+          <h3 class="text-base font-semibold text-surface-900 dark:text-surface-100 mb-1">
+            Move to {{ stageLabel(transitionModal.targetStatus) }}
+          </h3>
+          <p v-if="isTerminalTransition" class="mb-4 text-xs text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-950/40 rounded-lg px-3 py-2">
+            This is a terminal stage. The candidate will be marked as {{ stageLabel(transitionModal.targetStatus) }}.
+          </p>
+          <p v-else class="mb-4 text-sm text-surface-500 dark:text-surface-400">
+            Moving <span class="font-medium text-surface-800 dark:text-surface-200">{{ currentSummary?.candidateFirstName }} {{ currentSummary?.candidateLastName }}</span>.
+          </p>
+
+          <div class="mb-4">
+            <label class="block text-xs font-medium text-surface-600 dark:text-surface-400 mb-1.5">
+              Note (optional — added as a comment)
+            </label>
+            <textarea
+              v-model="transitionModal.note"
+              rows="3"
+              placeholder="Add context about this transition…"
+              class="w-full resize-none rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-sm text-surface-800 placeholder:text-surface-400 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-400/30 dark:border-surface-700 dark:bg-surface-800/60 dark:text-surface-200 dark:placeholder:text-surface-500"
+            />
+          </div>
+
+          <div class="flex gap-2.5">
+            <button
+              v-if="!isTerminalTransition"
+              class="cursor-pointer rounded-lg border border-surface-200 px-3.5 py-2 text-sm font-medium text-surface-600 hover:bg-surface-50 dark:border-surface-700 dark:text-surface-400 dark:hover:bg-surface-800 transition-colors"
+              @click="transitionModal = null"
+            >
+              Cancel
+            </button>
+            <button
+              class="flex-1 cursor-pointer rounded-lg px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-all"
+              :class="isTerminalTransition
+                ? 'bg-success-600 hover:bg-success-700'
+                : 'bg-brand-600 hover:bg-brand-700'"
+              @click="confirmTransition"
+            >
+              Move to {{ stageLabel(transitionModal.targetStatus) }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Edit Job Modal -->
     <Teleport :to="teleportTarget">
