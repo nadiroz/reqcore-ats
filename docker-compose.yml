@@ -56,6 +56,19 @@ services:
       - backups_data:/data/backups
 
   # Optional Novu notification infrastructure — run with: docker compose --profile novu up
+  novu-mongo:
+    image: mongo:7
+    container_name: reqcore_novu_mongo
+    restart: unless-stopped
+    profiles: [novu]
+    volumes:
+      - novu_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   novu-redis:
     image: redis:7-alpine
     container_name: reqcore_novu_redis
@@ -79,10 +92,12 @@ services:
       API_ROOT_URL: http://localhost:3010
       REDIS_HOST: novu-redis
       REDIS_PORT: 6379
-      MONGO_URL: "" # Novu requires Mongo; configure externally or use novu-cloud
+      MONGO_URL: mongodb://novu-mongo:27017/novu
       JWT_SECRET: ${NOVU_JWT_SECRET:-novu-dev-secret}
     depends_on:
       novu-redis:
+        condition: service_healthy
+      novu-mongo:
         condition: service_healthy
 
   novu-worker:
@@ -94,9 +109,11 @@ services:
       NODE_ENV: production
       REDIS_HOST: novu-redis
       REDIS_PORT: 6379
-      MONGO_URL: ""
+      MONGO_URL: mongodb://novu-mongo:27017/novu
     depends_on:
       novu-redis:
+        condition: service_healthy
+      novu-mongo:
         condition: service_healthy
 
   # Optional DB browser — run with: docker compose --profile tools up
@@ -115,3 +132,4 @@ volumes:
   postgres_data:
   minio_data:
   backups_data:
+  novu_mongo_data:

@@ -1,16 +1,8 @@
 <script setup lang="ts">
 import { CheckCircle2 } from 'lucide-vue-next'
 
-interface PipelineStage {
-  id: string
-  label: string
-  type: 'active' | 'gate' | 'terminal'
-  builtin: boolean
-  terminal: boolean
-}
-
 const props = defineProps<{
-  stages: PipelineStage[]
+  stages: Array<{ id: string; label: string; terminal: boolean; builtin: boolean; gate?: boolean }>
   selectedStage: string
   counts: Record<string, number>
 }>()
@@ -21,8 +13,8 @@ const emit = defineEmits<{
 
 const { stageColorClass } = usePipelineConfig()
 
-const activeStages = computed(() => props.stages.filter(s => s.type !== 'terminal'))
-const terminalStages = computed(() => props.stages.filter(s => s.type === 'terminal'))
+const activeStages = computed(() => props.stages.filter(s => !s.terminal))
+const terminalStages = computed(() => props.stages.filter(s => s.terminal))
 </script>
 
 <template>
@@ -31,7 +23,7 @@ const terminalStages = computed(() => props.stages.filter(s => s.type === 'termi
       <!-- Active + gate stages with connectors -->
       <template v-for="(stage, i) in activeStages" :key="stage.id">
         <!-- Gate stage: diamond node on connector -->
-        <template v-if="stage.type === 'gate'">
+        <template v-if="stage.gate">
           <!-- Connector line before gate -->
           <div class="flex items-center shrink-0">
             <div class="w-4 h-px bg-surface-300 dark:bg-surface-600" />

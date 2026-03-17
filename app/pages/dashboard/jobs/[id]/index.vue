@@ -721,10 +721,10 @@ useSeoMeta({
         <!-- Board columns (scrollable horizontally) -->
         <div class="flex flex-1 overflow-x-auto">
           <div
-            v-for="stage in pipelineStages.filter(s => s.type !== 'terminal')"
+            v-for="stage in pipelineStages.filter(s => !s.terminal)"
             :key="stage.id"
             class="flex w-72 shrink-0 flex-col border-r border-surface-200/80 dark:border-surface-800/60"
-            :class="stage.type === 'gate' ? 'w-60' : 'w-72'"
+            :class="stage.gate ? 'w-60' : 'w-72'"
           >
             <!-- Column header -->
             <div class="shrink-0 px-3 py-2.5 bg-surface-50/50 dark:bg-surface-900/50 border-b border-surface-100 dark:border-surface-800/40">
