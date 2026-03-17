@@ -238,10 +238,18 @@ export interface PipelineStage {
   label: string
   terminal: boolean
   builtin: boolean
+  gate?: boolean
+}
+
+export interface PipelineTransitionRule {
+  from: string
+  to: string
+  requiresApproval: boolean
 }
 
 export interface PipelineConfig {
   stages: PipelineStage[]
+  transitionRules?: PipelineTransitionRule[]
 }
 
 /**
@@ -420,6 +428,34 @@ export const activityLog = pgTable('activity_log', {
 ]))
 
 // ─────────────────────────────────────────────
+// Stage Approval Requests
+// ─────────────────────────────────────────────
+
+/**
+ * Approval requests for gated pipeline transitions.
+ * When a transition rule requires approval, an approver must resolve this
+ * record before the application can be moved to the target stage.
+ * status: pending | approved | declined
+ */
+export const stageApprovalRequest = pgTable('stage_approval_request', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  organizationId: text('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' }),
+  applicationId: text('application_id').notNull().references(() => application.id, { onDelete: 'cascade' }),
+  fromStage: text('from_stage').notNull(),
+  toStage: text('to_stage').notNull(),
+  requestedById: text('requested_by_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  assignedToId: text('assigned_to_id').references(() => user.id, { onDelete: 'set null' }),
+  status: text('status').notNull().default('pending'),
+  note: text('note'),
+  resolverNote: text('resolver_note'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at'),
+}, (t) => ([
+  index('approval_request_app_idx').on(t.organizationId, t.applicationId, t.status),
+  index('approval_request_assignee_idx').on(t.assignedToId, t.status),
+]))
+
+// ─────────────────────────────────────────────
 // Relations
 // ─────────────────────────────────────────────
 
@@ -447,6 +483,14 @@ export const applicationRelations = relations(application, ({ one, many }) => ({
   job: one(job, { fields: [application.jobId], references: [job.id] }),
   responses: many(questionResponse),
   interviews: many(interview),
+  approvalRequests: many(stageApprovalRequest),
+}))
+
+export const stageApprovalRequestRelations = relations(stageApprovalRequest, ({ one }) => ({
+  organization: one(organization, { fields: [stageApprovalRequest.organizationId], references: [organization.id] }),
+  application: one(application, { fields: [stageApprovalRequest.applicationId], references: [application.id] }),
+  requestedBy: one(user, { fields: [stageApprovalRequest.requestedById], references: [user.id] }),
+  assignedTo: one(user, { fields: [stageApprovalRequest.assignedToId], references: [user.id] }),
 }))
 
 export const documentRelations = relations(document, ({ one }) => ({

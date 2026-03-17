@@ -17,10 +17,23 @@ export interface PipelineStage {
   label: string
   terminal: boolean
   builtin: boolean
+  /** When true, this stage is a checkpoint/gate — visually distinct in the Kanban */
+  gate?: boolean
+}
+
+/**
+ * A single approval rule — when present, transitions matching from→to require
+ * an approval request before the candidate can be moved.
+ */
+export interface PipelineTransitionRule {
+  from: string
+  to: string
+  requiresApproval: boolean
 }
 
 export interface PipelineConfig {
   stages: PipelineStage[]
+  transitionRules?: PipelineTransitionRule[]
 }
 
 /**

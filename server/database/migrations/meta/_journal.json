@@ -120,6 +120,13 @@
       "when": 1773400000000,
       "tag": "0017_candidate_links",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1773500000000,
+      "tag": "0018_approval_workflow",
+      "breakpoints": true
     }
   ]
 }

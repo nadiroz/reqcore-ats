@@ -16,6 +16,7 @@ export default defineEventHandler(async (event) => {
   })
 
   const stages = settings?.pipelineConfig?.stages ?? DEFAULT_PIPELINE_STAGES
+  const transitionRules = settings?.pipelineConfig?.transitionRules ?? []
 
-  return { stages }
+  return { stages, transitionRules }
 })

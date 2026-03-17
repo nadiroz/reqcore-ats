@@ -103,6 +103,28 @@ const { data: feedbackConfig } = useFetch('/api/feedback/config', {
 
 const isFeedbackEnabled = computed(() => feedbackConfig.value?.enabled === true)
 
+// ─────────────────────────────────────────────
+// Pending approval requests (notification bell)
+// ─────────────────────────────────────────────
+
+const { data: pendingApprovalsData } = useFetch<{ data: any[]; total: number }>('/api/approval-requests', {
+  key: 'pending-approvals',
+  query: { status: 'pending' },
+  headers: useRequestHeaders(['cookie']),
+})
+const pendingApprovalCount = computed(() => pendingApprovalsData.value?.total ?? 0)
+const showApprovalDropdown = ref(false)
+const approvalDropdownRef = useTemplateRef<HTMLElement>('approvalDropdownRoot')
+
+function onClickOutsideApprovals(e: MouseEvent) {
+  if (approvalDropdownRef.value && !approvalDropdownRef.value.contains(e.target as Node)) {
+    showApprovalDropdown.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', onClickOutsideApprovals))
+onUnmounted(() => document.removeEventListener('click', onClickOutsideApprovals))
+
 const jobTabs = computed(() => {
   if (!activeJobId.value) return []
   const base = `/dashboard/jobs/${activeJobId.value}`
@@ -137,6 +159,7 @@ watch(() => route.path, () => {
   showUserMenu.value = false
   showMobileMenu.value = false
   showGetStartedMenu.value = false
+  showApprovalDropdown.value = false
 })
 
 // Close user menu on outside click
@@ -275,6 +298,58 @@ onUnmounted(() => {
             <Sun v-if="isDark" class="size-4" />
             <Moon v-else class="size-4" />
           </button>
+
+          <!-- Approval bell -->
+          <div ref="approvalDropdownRoot" class="relative">
+            <button
+              class="relative flex items-center justify-center size-8 rounded-lg text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800 transition-all duration-200 cursor-pointer border-0 bg-transparent"
+              title="Pending approvals"
+              @click="showApprovalDropdown = !showApprovalDropdown"
+            >
+              <Bell class="size-4" />
+              <span
+                v-if="pendingApprovalCount > 0"
+                class="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-danger-500 text-[9px] font-bold text-white ring-2 ring-white dark:ring-surface-900"
+              >
+                {{ pendingApprovalCount > 9 ? '9+' : pendingApprovalCount }}
+              </span>
+            </button>
+
+            <Transition
+              enter-active-class="transition duration-150 ease-out"
+              enter-from-class="opacity-0 scale-95 -translate-y-1"
+              enter-to-class="opacity-100 scale-100 translate-y-0"
+              leave-active-class="transition duration-100 ease-in"
+              leave-from-class="opacity-100 scale-100 translate-y-0"
+              leave-to-class="opacity-0 scale-95 -translate-y-1"
+            >
+              <div
+                v-if="showApprovalDropdown"
+                class="absolute right-0 top-[calc(100%+6px)] w-80 rounded-xl border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-900 shadow-xl shadow-surface-900/8 dark:shadow-surface-950/30 overflow-hidden"
+              >
+                <div class="px-4 py-3 border-b border-surface-100 dark:border-surface-800">
+                  <p class="text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">Pending Approvals</p>
+                </div>
+                <div v-if="pendingApprovalCount === 0" class="px-4 py-6 text-center">
+                  <p class="text-sm text-surface-400">No pending approvals</p>
+                </div>
+                <div v-else class="max-h-72 overflow-y-auto divide-y divide-surface-100 dark:divide-surface-800">
+                  <div
+                    v-for="req in pendingApprovalsData?.data ?? []"
+                    :key="req.id"
+                    class="px-4 py-3 hover:bg-surface-50 dark:hover:bg-surface-800/60 transition-colors"
+                  >
+                    <p class="text-sm font-medium text-surface-800 dark:text-surface-200 truncate">
+                      {{ req.candidateFirstName }} {{ req.candidateLastName }}
+                    </p>
+                    <p class="text-xs text-surface-500 dark:text-surface-400 mt-0.5">
+                      {{ req.jobTitle }} · {{ req.fromStage }} → {{ req.toStage }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </Transition>
+          </div>
 
           <!-- Updates button -->
           <NuxtLink

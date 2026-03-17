@@ -43,7 +43,13 @@ const {
   headers: useRequestHeaders(['cookie']),
 })
 
-const { stages: pipelineStages, stageLabel, transitions: pipelineTransitions } = usePipelineConfig()
+const {
+  stages: pipelineStages,
+  stageLabel,
+  transitions: pipelineTransitions,
+  stageColorClass,
+  requiresApproval,
+} = usePipelineConfig()
 
 const PIPELINE_STATUSES = computed(() => pipelineStages.value.map(s => s.id))
 type PipelineStatus = string
@@ -577,8 +583,39 @@ const isTerminalTransition = computed(() =>
     : false
 )
 
+// Approval request modal for gated transitions
+const approvalRequestModal = ref<{ targetStatus: string; note: string } | null>(null)
+const isSubmittingApproval = ref(false)
+
 function openTransitionModal(nextStatus: string) {
-  transitionModal.value = { targetStatus: nextStatus, note: '' }
+  const currentStatus = currentSummary.value?.status
+  if (currentStatus && requiresApproval(currentStatus, nextStatus)) {
+    approvalRequestModal.value = { targetStatus: nextStatus, note: '' }
+  } else {
+    transitionModal.value = { targetStatus: nextStatus, note: '' }
+  }
+}
+
+async function submitApprovalRequest() {
+  if (!approvalRequestModal.value || !currentSummary.value) return
+  isSubmittingApproval.value = true
+  try {
+    await $fetch(`/api/applications/${currentSummary.value.id}/approval-requests`, {
+      method: 'POST',
+      body: {
+        toStage: approvalRequestModal.value.targetStatus,
+        note: approvalRequestModal.value.note.trim() || undefined,
+      },
+    })
+    approvalRequestModal.value = null
+    statusError.value = null
+  }
+  catch (err: any) {
+    statusError.value = err?.data?.statusMessage ?? 'Failed to request approval'
+  }
+  finally {
+    isSubmittingApproval.value = false
+  }
 }
 
 async function confirmTransition() {
@@ -607,29 +644,6 @@ async function undoTransition() {
   } finally {
     isMutating.value = false
   }
-}
-
-function stageColorClass(stageId: string, variant: 'dot' | 'badge'): string {
-  const stages = pipelineStages.value
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stage = stages.find((s: any) => s.id === stageId)
-  const dots = ['bg-brand-500', 'bg-info-500', 'bg-warning-500', 'bg-success-500']
-  const badges = [
-    'bg-brand-50 text-brand-700 ring-brand-200 dark:bg-brand-950/50 dark:text-brand-300 dark:ring-brand-800',
-    'bg-info-50 text-info-700 ring-info-200 dark:bg-info-950/50 dark:text-info-300 dark:ring-info-800',
-    'bg-warning-50 text-warning-700 ring-warning-200 dark:bg-warning-950/50 dark:text-warning-300 dark:ring-warning-800',
-    'bg-success-50 text-success-700 ring-success-200 dark:bg-success-950/50 dark:text-success-300 dark:ring-success-800',
-  ]
-  const grey = variant === 'dot'
-    ? 'bg-surface-400 dark:bg-surface-500'
-    : 'bg-surface-100 text-surface-500 ring-surface-200 dark:bg-surface-800/50 dark:text-surface-400 dark:ring-surface-700'
-  if (!stage || stageId === 'rejected') return grey
-  if (stage.terminal) return variant === 'dot'
-    ? 'bg-success-600 dark:bg-success-300'
-    : 'bg-success-100 text-success-800 ring-success-300 dark:bg-success-900/50 dark:text-success-200 dark:ring-success-700'
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const idx = stages.filter((s: any) => !s.terminal).findIndex((s: any) => s.id === stageId) % 4
-  return variant === 'dot' ? (dots[idx] ?? grey) : (badges[idx] ?? grey)
 }
 
 // ─────────────────────────────────────────────
@@ -2633,6 +2647,51 @@ function closeDocPreview() {
               @click="confirmTransition"
             >
               Move to {{ stageLabel(transitionModal.targetStatus) }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Approval Request Modal -->
+    <Teleport :to="teleportTarget">
+      <div v-if="approvalRequestModal" class="fixed inset-0 z-50 flex items-center justify-center">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="approvalRequestModal = null" />
+        <div class="relative bg-white dark:bg-surface-900 rounded-2xl shadow-2xl ring-1 ring-surface-200/80 dark:ring-surface-700/60 p-6 max-w-sm w-full mx-4">
+          <h3 class="text-base font-semibold text-surface-900 dark:text-surface-100 mb-1">
+            Request Approval
+          </h3>
+          <p class="mb-4 text-sm text-surface-500 dark:text-surface-400">
+            Moving <span class="font-medium text-surface-800 dark:text-surface-200">{{ currentSummary?.candidateFirstName }} {{ currentSummary?.candidateLastName }}</span>
+            to <span class="font-medium text-surface-800 dark:text-surface-200">{{ stageLabel(approvalRequestModal.targetStatus) }}</span>
+            requires approval.
+          </p>
+
+          <div class="mb-4">
+            <label class="block text-xs font-medium text-surface-600 dark:text-surface-400 mb-1.5">
+              Note (optional)
+            </label>
+            <textarea
+              v-model="approvalRequestModal.note"
+              rows="3"
+              placeholder="Why should this transition be approved?"
+              class="w-full resize-none rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-sm text-surface-800 placeholder:text-surface-400 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-400/30 dark:border-surface-700 dark:bg-surface-800/60 dark:text-surface-200 dark:placeholder:text-surface-500"
+            />
+          </div>
+
+          <div class="flex gap-2.5">
+            <button
+              class="cursor-pointer rounded-lg border border-surface-200 px-3.5 py-2 text-sm font-medium text-surface-600 hover:bg-surface-50 dark:border-surface-700 dark:text-surface-400 dark:hover:bg-surface-800 transition-colors"
+              @click="approvalRequestModal = null"
+            >
+              Cancel
+            </button>
+            <button
+              :disabled="isSubmittingApproval"
+              class="flex-1 cursor-pointer rounded-lg bg-warning-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-warning-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              @click="submitApprovalRequest"
+            >
+              {{ isSubmittingApproval ? 'Submitting…' : 'Request Approval' }}
             </button>
           </div>
         </div>

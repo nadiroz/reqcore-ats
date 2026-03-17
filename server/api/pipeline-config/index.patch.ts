@@ -8,10 +8,18 @@ const pipelineStageSchema = z.object({
   label: z.string().min(1).max(64),
   terminal: z.boolean(),
   builtin: z.boolean(),
+  gate: z.boolean().optional(),
+})
+
+const transitionRuleSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  requiresApproval: z.boolean(),
 })
 
 const patchBodySchema = z.object({
   stages: z.array(pipelineStageSchema).min(2),
+  transitionRules: z.array(transitionRuleSchema).optional(),
 })
 
 /**
@@ -44,19 +52,21 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  const config = {
+    stages: body.stages,
+    transitionRules: body.transitionRules ?? [],
+  }
+
   await db.insert(orgSettings)
     .values({
       organizationId: orgId,
-      pipelineConfig: { stages: body.stages },
+      pipelineConfig: config,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
       target: orgSettings.organizationId,
-      set: {
-        pipelineConfig: { stages: body.stages },
-        updatedAt: new Date(),
-      },
+      set: { pipelineConfig: config, updatedAt: new Date() },
     })
 
-  return { stages: body.stages }
+  return config
 })
