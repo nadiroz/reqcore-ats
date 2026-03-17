@@ -21,7 +21,7 @@ const showMobileMenu = ref(false)
 const showGetStartedMenu = ref(false)
 
 const config = useRuntimeConfig()
-const { activeOrg } = useCurrentOrg()
+const { activeOrg, orgs } = useCurrentOrg()
 
 const isDemo = computed(() => {
   const slug = config.public.demoOrgSlug
@@ -261,14 +261,9 @@ onUnmounted(() => {
             New Job
           </NuxtLink>
 
-          <!-- Org Switcher -->
-          <div class="hidden lg:block ml-1">
+          <!-- Org Switcher (only when multiple orgs exist) -->
+          <div v-if="orgs && orgs.length > 1" class="hidden lg:block ml-1">
             <OrgSwitcher />
-          </div>
-
-          <!-- Language Switcher -->
-          <div class="hidden lg:block">
-            <LanguageSwitcher />
           </div>
 
           <!-- Color mode toggle -->
@@ -355,8 +350,8 @@ onUnmounted(() => {
                   </NuxtLink>
                 </div>
 
-                <!-- Org switcher (mobile) -->
-                <div class="lg:hidden border-b border-surface-100 dark:border-surface-800 p-2">
+                <!-- Org switcher (mobile, only when multiple orgs exist) -->
+                <div v-if="orgs && orgs.length > 1" class="lg:hidden border-b border-surface-100 dark:border-surface-800 p-2">
                   <OrgSwitcher />
                 </div>
 
@@ -503,9 +498,8 @@ onUnmounted(() => {
           </template>
         </nav>
 
-        <div class="px-4 pb-3 flex flex-col gap-2 border-t border-surface-100 dark:border-surface-800 pt-3 lg:hidden">
+        <div v-if="orgs && orgs.length > 1" class="px-4 pb-3 flex flex-col gap-2 border-t border-surface-100 dark:border-surface-800 pt-3 lg:hidden">
           <OrgSwitcher />
-          <LanguageSwitcher />
         </div>
       </div>
     </Transition>

@@ -276,42 +276,29 @@ const typeLabels: Record<string, string> = {
         Back to job details
       </NuxtLink>
 
-      <!-- Job hero card -->
-      <div class="rounded-2xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 shadow-sm overflow-hidden mb-6">
-        <!-- Accent bar -->
-        <div class="h-1 bg-gradient-to-r from-brand-500 to-brand-400" />
-
-        <div class="p-6 sm:p-8">
-          <!-- Meta chips -->
-          <div class="flex flex-wrap items-center gap-2 mb-4">
-            <span
-              v-if="job.organizationName"
-              class="inline-flex items-center gap-1.5 rounded-full border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 px-3 py-1 text-xs font-medium text-surface-700 dark:text-surface-300"
-            >
-              <Building2 class="size-3.5 text-surface-400" />
-              {{ job.organizationName }}
-            </span>
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-50 dark:bg-brand-950 border border-brand-100 dark:border-brand-900 px-3 py-1 text-xs font-medium text-brand-700 dark:text-brand-300">
-              <Briefcase class="size-3.5" />
-              {{ typeLabels[job.type] ?? job.type }}
-            </span>
-            <span
-              v-if="job.location"
-              class="inline-flex items-center gap-1.5 rounded-full border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 px-3 py-1 text-xs font-medium text-surface-600 dark:text-surface-400"
-            >
-              <MapPin class="size-3.5 text-surface-400" />
-              {{ job.location }}
-            </span>
-          </div>
-
-          <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-surface-900 dark:text-surface-50">
-            {{ job.title }}
-          </h1>
-
-          <div v-if="job.description" class="mt-5 border-t border-surface-100 dark:border-surface-800 pt-5">
-            <MarkdownDescription :value="job.description" />
-          </div>
-        </div>
+      <!-- Compact job header -->
+      <div class="flex flex-wrap items-center gap-3 mb-6">
+        <h1 class="text-xl font-bold text-surface-900 dark:text-surface-100 mr-1">
+          {{ job.title }}
+        </h1>
+        <span
+          v-if="job.organizationName"
+          class="inline-flex items-center gap-1.5 rounded-full border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 px-3 py-1 text-xs font-medium text-surface-700 dark:text-surface-300"
+        >
+          <Building2 class="size-3.5 text-surface-400" />
+          {{ job.organizationName }}
+        </span>
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-50 dark:bg-brand-950 border border-brand-100 dark:border-brand-900 px-3 py-1 text-xs font-medium text-brand-700 dark:text-brand-300">
+          <Briefcase class="size-3.5" />
+          {{ typeLabels[job.type] ?? job.type }}
+        </span>
+        <span
+          v-if="job.location"
+          class="inline-flex items-center gap-1.5 rounded-full border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 px-3 py-1 text-xs font-medium text-surface-600 dark:text-surface-400"
+        >
+          <MapPin class="size-3.5 text-surface-400" />
+          {{ job.location }}
+        </span>
       </div>
 
       <!-- Application form card -->
