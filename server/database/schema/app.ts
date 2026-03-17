@@ -108,6 +108,8 @@ export const document = pgTable('document', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   organizationId: text('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' }),
   candidateId: text('candidate_id').notNull().references(() => candidate.id, { onDelete: 'cascade' }),
+  /** Optional: scopes the document to a specific application. Null = candidate-level document. */
+  applicationId: text('application_id').references(() => application.id, { onDelete: 'set null' }),
   type: documentTypeEnum('type').notNull().default('resume'),
   storageKey: text('storage_key').notNull().unique(),
   originalFilename: text('original_filename').notNull(),
@@ -118,6 +120,7 @@ export const document = pgTable('document', {
 }, (t) => ([
   index('document_organization_id_idx').on(t.organizationId),
   index('document_candidate_id_idx').on(t.candidateId),
+  index('document_application_idx').on(t.organizationId, t.applicationId),
 ]))
 
 /**
