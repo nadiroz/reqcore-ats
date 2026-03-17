@@ -1,5 +1,8 @@
 -- Convert application.status from enum to plain text so custom stage IDs can be stored
+-- Must drop the enum default before altering the column type, then re-add as plain text default
+ALTER TABLE "application" ALTER COLUMN "status" DROP DEFAULT;
 ALTER TABLE "application" ALTER COLUMN "status" TYPE text;
+ALTER TABLE "application" ALTER COLUMN "status" SET DEFAULT 'new';
 DROP TYPE IF EXISTS "application_status";
 
 -- Per-org pipeline configuration (labels, custom stages)
