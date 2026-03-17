@@ -2,7 +2,7 @@
 import {
   X, User, Calendar, Clock, Hash, MessageSquare, FileText,
   ExternalLink, Mail, Phone, Upload, Download, Eye, Trash2,
-  ArrowLeft, AlertTriangle, Send, Pencil,
+  ArrowLeft, AlertTriangle, Send, Pencil, Reply, CornerDownRight,
 } from 'lucide-vue-next'
 import { usePreviewReadOnly } from '~/composables/usePreviewReadOnly'
 
@@ -329,7 +329,7 @@ const currentUserId = computed(() => session.value?.user?.id)
 // Comments
 // ─────────────────────────────────────────────
 
-const { comments, total: commentsTotal, createComment, updateComment, deleteComment: deleteCommentById } = useComments({
+const { comments, threaded, total: commentsTotal, createComment, createReply, updateComment, deleteComment: deleteCommentById } = useComments({
   targetType: 'application',
   targetId: computed(() => props.applicationId),
 })
@@ -338,6 +338,11 @@ const newCommentBody = ref('')
 const isSubmittingComment = ref(false)
 const editingCommentId = ref<string | null>(null)
 const editingCommentBody = ref('')
+const replyingToId = ref<string | null>(null)
+const replyBody = ref('')
+const isSubmittingReply = ref(false)
+
+const { renderMentions } = useMentions()
 
 async function submitComment() {
   const body = newCommentBody.value.trim()
@@ -377,6 +382,23 @@ async function handleDeleteComment(id: string) {
   } catch (err: any) {
     if (handlePreviewReadOnlyError(err)) return
     alert(err.data?.statusMessage ?? 'Failed to delete comment')
+  }
+}
+
+async function submitReply() {
+  const parentId = replyingToId.value
+  const body = replyBody.value.trim()
+  if (!parentId || !body || isSubmittingReply.value) return
+  isSubmittingReply.value = true
+  try {
+    await createReply(parentId, body)
+    replyingToId.value = null
+    replyBody.value = ''
+  } catch (err: any) {
+    if (handlePreviewReadOnlyError(err)) return
+    alert(err.data?.statusMessage ?? 'Failed to add reply')
+  } finally {
+    isSubmittingReply.value = false
   }
 }
 
@@ -888,74 +910,112 @@ function getInitials(name: string): string {
               <p class="text-xs text-surface-400 mt-1">Be the first to add a comment.</p>
             </div>
 
-            <!-- Comment list -->
+            <!-- Threaded comment list -->
             <div v-else class="space-y-3">
               <div
-                v-for="c in comments"
-                :key="c.id"
+                v-for="thread in threaded"
+                :key="thread.id"
                 class="rounded-xl border border-surface-200/80 dark:border-surface-800/60 bg-white dark:bg-surface-950 p-4 shadow-sm shadow-surface-900/[0.03] dark:shadow-none"
               >
-                <div v-if="editingCommentId === c.id">
-                  <textarea
-                    v-model="editingCommentBody"
-                    rows="3"
-                    class="w-full rounded-lg border border-surface-300 dark:border-surface-700 bg-white dark:bg-surface-800 px-3 py-2 text-sm text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
-                  />
+                <!-- Parent comment -->
+                <div v-if="editingCommentId === thread.id">
+                  <textarea v-model="editingCommentBody" rows="3" class="w-full rounded-lg border border-surface-300 dark:border-surface-700 bg-white dark:bg-surface-800 px-3 py-2 text-sm text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors" />
                   <div class="flex items-center gap-2 mt-2">
-                    <button
-                      class="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 transition-colors"
-                      @click="saveEditComment"
-                    >
-                      Save
-                    </button>
-                    <button
-                      class="rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-xs font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
-                      @click="editingCommentId = null"
-                    >
-                      Cancel
-                    </button>
+                    <button class="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 transition-colors" @click="saveEditComment">Save</button>
+                    <button class="rounded-lg border border-surface-300 dark:border-surface-600 px-3 py-1.5 text-xs font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors" @click="editingCommentId = null">Cancel</button>
                   </div>
                 </div>
                 <template v-else>
                   <div class="flex items-start gap-2.5">
                     <div class="flex size-7 items-center justify-center rounded-full bg-brand-100 dark:bg-brand-900/40 text-brand-700 dark:text-brand-300 text-[10px] font-bold shrink-0 mt-0.5">
-                      {{ getInitials(c.authorName) }}
+                      {{ getInitials(thread.authorName) }}
                     </div>
                     <div class="flex-1 min-w-0">
                       <div class="flex items-baseline justify-between gap-2 mb-1">
-                        <span class="text-xs font-semibold text-surface-700 dark:text-surface-300">{{ c.authorName }}</span>
-                        <span class="text-[10px] text-surface-400 shrink-0">{{ formatRelativeTime(c.createdAt) }}</span>
+                        <span class="text-xs font-semibold text-surface-700 dark:text-surface-300">{{ thread.authorName }}</span>
+                        <span class="text-[10px] text-surface-400 shrink-0">{{ formatRelativeTime(thread.createdAt) }}</span>
                       </div>
-                      <p class="text-sm text-surface-700 dark:text-surface-200 leading-relaxed whitespace-pre-wrap">{{ c.body }}</p>
-                      <div v-if="c.authorId === currentUserId" class="flex items-center gap-2 mt-2">
+                      <p class="text-sm text-surface-700 dark:text-surface-200 leading-relaxed whitespace-pre-wrap" v-html="renderMentions(thread.body)" />
+                      <div class="flex items-center gap-2 mt-2">
                         <button
                           class="text-[10px] text-surface-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-0.5"
-                          @click="startEditComment(c.id, c.body)"
+                          @click="replyingToId = replyingToId === thread.id ? null : thread.id; replyBody = ''"
                         >
-                          <Pencil class="size-2.5" /> Edit
+                          <Reply class="size-2.5" /> Reply
                         </button>
-                        <button
-                          class="text-[10px] text-surface-400 hover:text-danger-600 dark:hover:text-danger-400 transition-colors flex items-center gap-0.5"
-                          @click="handleDeleteComment(c.id)"
-                        >
-                          <Trash2 class="size-2.5" /> Delete
-                        </button>
+                        <template v-if="thread.authorId === currentUserId">
+                          <button class="text-[10px] text-surface-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-0.5" @click="startEditComment(thread.id, thread.body)">
+                            <Pencil class="size-2.5" /> Edit
+                          </button>
+                          <button class="text-[10px] text-surface-400 hover:text-danger-600 dark:hover:text-danger-400 transition-colors flex items-center gap-0.5" @click="handleDeleteComment(thread.id)">
+                            <Trash2 class="size-2.5" /> Delete
+                          </button>
+                        </template>
                       </div>
                     </div>
                   </div>
                 </template>
+
+                <!-- Replies -->
+                <div v-if="thread.replies.length" class="ml-9 mt-3 space-y-2.5 border-l-2 border-surface-100 dark:border-surface-800 pl-3">
+                  <div v-for="reply in thread.replies" :key="reply.id">
+                    <div v-if="editingCommentId === reply.id" class="flex gap-2">
+                      <textarea v-model="editingCommentBody" rows="1" class="flex-1 rounded-lg border border-surface-300 dark:border-surface-700 bg-white dark:bg-surface-800 px-2 py-1 text-xs text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors resize-none" />
+                      <button class="rounded px-2 py-0.5 text-xs bg-brand-600 text-white hover:bg-brand-700 transition-colors" @click="saveEditComment">Save</button>
+                      <button class="rounded px-2 py-0.5 text-xs border border-surface-300 dark:border-surface-600 text-surface-600 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors" @click="editingCommentId = null">Cancel</button>
+                    </div>
+                    <div v-else class="flex items-start gap-2">
+                      <div class="flex size-5 items-center justify-center rounded-full bg-surface-100 dark:bg-surface-800 text-[9px] font-bold text-surface-500 shrink-0 mt-0.5">
+                        {{ getInitials(reply.authorName) }}
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-baseline gap-2 mb-0.5">
+                          <span class="text-[10px] font-semibold text-surface-600 dark:text-surface-400">{{ reply.authorName }}</span>
+                          <span class="text-[9px] text-surface-400">{{ formatRelativeTime(reply.createdAt) }}</span>
+                        </div>
+                        <p class="text-xs text-surface-600 dark:text-surface-300 whitespace-pre-wrap" v-html="renderMentions(reply.body)" />
+                        <div v-if="reply.authorId === currentUserId" class="flex items-center gap-2 mt-1">
+                          <button class="text-[9px] text-surface-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-0.5" @click="startEditComment(reply.id, reply.body)">
+                            <Pencil class="size-2" /> Edit
+                          </button>
+                          <button class="text-[9px] text-surface-400 hover:text-danger-600 dark:hover:text-danger-400 transition-colors flex items-center gap-0.5" @click="handleDeleteComment(reply.id)">
+                            <Trash2 class="size-2" /> Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Reply input -->
+                <div v-if="replyingToId === thread.id" class="ml-9 mt-2 flex gap-2 items-start">
+                  <CornerDownRight class="size-3 text-surface-400 mt-1.5 shrink-0" />
+                  <textarea
+                    v-model="replyBody"
+                    rows="1"
+                    placeholder="Write a reply…"
+                    class="flex-1 rounded-lg border border-surface-300 dark:border-surface-700 bg-white dark:bg-surface-800 px-2 py-1.5 text-xs text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors resize-none"
+                    @keydown.ctrl.enter.prevent="submitReply"
+                    @keydown.meta.enter.prevent="submitReply"
+                  />
+                  <button
+                    :disabled="!replyBody.trim() || isSubmittingReply"
+                    class="rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    @click="submitReply"
+                  >
+                    Reply
+                  </button>
+                </div>
               </div>
             </div>
 
             <!-- Add comment input -->
             <div class="rounded-xl border border-surface-200/80 dark:border-surface-800/60 bg-white dark:bg-surface-950 p-4 shadow-sm shadow-surface-900/[0.03] dark:shadow-none">
-              <textarea
+              <MentionTextarea
                 v-model="newCommentBody"
-                rows="2"
-                placeholder="Add a comment…"
-                class="w-full rounded-lg border border-surface-300 dark:border-surface-700 bg-white dark:bg-surface-800 px-3 py-2 text-sm text-surface-900 dark:text-surface-100 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors resize-none"
-                @keydown.ctrl.enter.prevent="submitComment"
-                @keydown.meta.enter.prevent="submitComment"
+                placeholder="Add a comment… (use @ to mention)"
+                :rows="2"
+                @submit="submitComment"
               />
               <div class="flex items-center justify-between mt-2">
                 <span class="text-[10px] text-surface-400">Ctrl+Enter to submit</span>

@@ -8,6 +8,7 @@ export const createCommentSchema = z.object({
   targetType: z.enum(commentTargetTypes),
   targetId: z.string().uuid(),
   body: z.string().min(1).max(10000),
+  parentId: z.string().uuid().optional(),
 })
 
 export const updateCommentSchema = z.object({

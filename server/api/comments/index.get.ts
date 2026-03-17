@@ -47,6 +47,7 @@ export default defineEventHandler(async (event) => {
         targetType: comment.targetType,
         targetId: comment.targetId,
         body: comment.body,
+        parentId: comment.parentId,
         createdAt: comment.createdAt,
         updatedAt: comment.updatedAt,
         authorId: comment.authorId,

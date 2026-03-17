@@ -5,12 +5,17 @@ export interface Comment {
   targetType: 'candidate' | 'application' | 'job'
   targetId: string
   body: string
+  parentId: string | null
   authorId: string
   authorName: string
   authorEmail: string
   authorImage: string | null
   createdAt: string
   updatedAt: string
+}
+
+export interface ThreadedComment extends Comment {
+  replies: Comment[]
 }
 
 interface CommentListResponse {
@@ -22,6 +27,7 @@ interface CommentListResponse {
 
 /**
  * Composable for listing and managing comments on a target entity.
+ * Supports threaded comments (one level of nesting).
  */
 export function useComments(options: {
   targetType: MaybeRefOrGetter<'candidate' | 'application' | 'job'>
@@ -58,6 +64,26 @@ export function useComments(options: {
   const total = computed(() => data.value?.total ?? 0)
   const isLoading = computed(() => status.value === 'pending')
 
+  /** Top-level comments with their replies grouped underneath. */
+  const threaded = computed<ThreadedComment[]>(() => {
+    const all = comments.value
+    const topLevel = all.filter(c => !c.parentId)
+    const replyMap = new Map<string, Comment[]>()
+    for (const c of all) {
+      if (c.parentId) {
+        const list = replyMap.get(c.parentId) ?? []
+        list.push(c)
+        replyMap.set(c.parentId, list)
+      }
+    }
+    return topLevel.map(c => ({
+      ...c,
+      replies: (replyMap.get(c.id) ?? []).sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
+    }))
+  })
+
   async function createComment(body: string) {
     const targetId = toValue(options.targetId)
     if (!targetId) return
@@ -68,6 +94,26 @@ export function useComments(options: {
           targetType: toValue(options.targetType),
           targetId,
           body,
+        },
+      })
+      await refresh()
+    } catch (err) {
+      handlePreviewReadOnlyError(err)
+      throw err
+    }
+  }
+
+  async function createReply(parentId: string, body: string) {
+    const targetId = toValue(options.targetId)
+    if (!targetId) return
+    try {
+      await $fetch('/api/comments', {
+        method: 'POST',
+        body: {
+          targetType: toValue(options.targetType),
+          targetId,
+          body,
+          parentId,
         },
       })
       await refresh()
@@ -100,5 +146,8 @@ export function useComments(options: {
     }
   }
 
-  return { comments, total, isLoading, status, error, refresh, createComment, updateComment, deleteComment }
+  return {
+    comments, threaded, total, isLoading, status, error, refresh,
+    createComment, createReply, updateComment, deleteComment,
+  }
 }

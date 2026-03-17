@@ -406,12 +406,14 @@ export const comment = pgTable('comment', {
   targetType: commentTargetEnum('target_type').notNull(),
   targetId: text('target_id').notNull(),
   body: text('body').notNull(),
+  parentId: text('parent_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (t) => ([
   index('comment_organization_id_idx').on(t.organizationId),
   index('comment_target_idx').on(t.targetType, t.targetId),
   index('comment_author_id_idx').on(t.authorId),
+  index('comment_parent_idx').on(t.parentId),
 ]))
 
 // ─────────────────────────────────────────────
@@ -620,9 +622,11 @@ export const questionResponseRelations = relations(questionResponse, ({ one }) =
   question: one(jobQuestion, { fields: [questionResponse.questionId], references: [jobQuestion.id] }),
 }))
 
-export const commentRelations = relations(comment, ({ one }) => ({
+export const commentRelations = relations(comment, ({ one, many }) => ({
   organization: one(organization, { fields: [comment.organizationId], references: [organization.id] }),
   author: one(user, { fields: [comment.authorId], references: [user.id] }),
+  parent: one(comment, { fields: [comment.parentId], references: [comment.id], relationName: 'commentThread' }),
+  replies: many(comment, { relationName: 'commentThread' }),
 }))
 
 export const activityLogRelations = relations(activityLog, ({ one }) => ({
