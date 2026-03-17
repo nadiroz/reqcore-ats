@@ -74,7 +74,8 @@ export function useUpload(opts: UseUploadOptions) {
       },
     })
 
-    uppy.on('file-added', (file: { id: string; name: string; size: number }) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    uppy.on('file-added', (file: any) => {
       files.value.push({
         id: file.id,
         name: file.name,
@@ -84,18 +85,20 @@ export function useUpload(opts: UseUploadOptions) {
       })
     })
 
-    uppy.on('upload-progress', (file: { id: string }, progress: { bytesUploaded: number; bytesTotal: number }) => {
-      const entry = files.value.find(f => f.id === file.id)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    uppy.on('upload-progress', (file: any, progress: any) => {
+      const entry = files.value.find(f => f.id === file?.id)
       if (entry) {
-        entry.progress = progress.bytesTotal
+        entry.progress = progress?.bytesTotal
           ? Math.round((progress.bytesUploaded / progress.bytesTotal) * 100)
           : 0
         entry.status = 'uploading'
       }
     })
 
-    uppy.on('upload-success', (file: { id: string }, response: { uploadURL?: string; status: number }) => {
-      const entry = files.value.find(f => f.id === file.id)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    uppy.on('upload-success', (file: any, response: any) => {
+      const entry = files.value.find(f => f.id === file?.id)
       if (entry) {
         entry.progress = 100
         entry.status = 'complete'
@@ -104,17 +107,19 @@ export function useUpload(opts: UseUploadOptions) {
       // The tus server injects the new document ID in a response header.
       // Uppy doesn't surface response headers directly, so we rely on onComplete
       // being called from the 'complete' event (which fires after all files finish).
-      const documentId = (response as Record<string, string>).uploadURL?.split('/').pop() ?? ''
+      const documentId = (response?.uploadURL as string | undefined)?.split('/').pop() ?? ''
       opts.onComplete?.(documentId)
     })
 
-    uppy.on('upload-error', (file: { id: string }, error: Error) => {
-      const entry = files.value.find(f => f.id === file.id)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    uppy.on('upload-error', (file: any, error: any) => {
+      const entry = files.value.find(f => f.id === file?.id)
       if (entry) {
         entry.status = 'error'
-        entry.error = error.message
+        entry.error = error?.message ?? 'Upload failed'
       }
-      opts.onError?.(error)
+      if (error instanceof Error) opts.onError?.(error)
+      else opts.onError?.(new Error(error?.message ?? 'Upload failed'))
     })
 
     // Remove completed/errored files from the list after a short delay

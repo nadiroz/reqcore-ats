@@ -2,8 +2,8 @@
  * Tus resumable upload endpoint.
  *
  * Handles all tus protocol requests (OPTIONS, POST, HEAD, PATCH, DELETE)
- * at /api/upload/*. Uses FileStore for in-progress uploads (OS temp dir),
- * then moves completed files to S3 and creates the document DB record.
+ * at /api/upload/*. Uses S3Store for direct S3/MinIO uploads without
+ * temp files, then creates the document DB record on completion.
  *
  * Client sends these tus metadata fields:
  *   - candidateId  (required)
@@ -14,16 +14,14 @@
  * Security:
  *   - Auth required for all requests (requirePermission runs before tus)
  *   - orgId + actorId are injected server-side (never trusted from client metadata)
- *   - MIME type validated from magic bytes on completion
- *   - Temp files cleaned up on S3 upload or DB insert failure
+ *   - MIME type validated from file extension and Content-Type header on completion
  */
 
-import path from 'node:path'
-import os from 'node:os'
-import fs from 'node:fs/promises'
-import { fileTypeFromBuffer } from 'file-type'
+import { Server } from '@tus/server'
+import { S3Store } from '@tus/s3-store'
+import { CopyObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { document } from '../../database/schema'
-import { uploadToS3, deleteFromS3 } from '../../utils/s3'
+import { getS3Client } from '../../utils/s3'
 import {
   ALLOWED_MIME_TYPES,
   MIME_TO_EXTENSION,
@@ -33,40 +31,36 @@ import {
 
 // ─────────────────────────────────────────────
 // Lazy tus server initialisation
-// tus-node-server uses CJS — import lazily to avoid build-time crash
 // ─────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _tusServer: any
-
-const TUS_UPLOAD_DIR = path.join(os.tmpdir(), 'reqcore_tus_uploads')
+let _tusServer: Server | null = null
 
 function getTusServer() {
   if (_tusServer) return _tusServer
 
-  // Dynamic require: avoids ESM/CJS interop issues at build time
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Server, FileStore } = require('tus-node-server') as {
-    Server: new (opts: Record<string, unknown>) => { handle: (req: unknown, res: unknown) => void }
-    FileStore: new (opts: Record<string, unknown>) => unknown
-  }
-
   _tusServer = new Server({
     path: '/api/upload',
-    datastore: new FileStore({ directory: TUS_UPLOAD_DIR }),
+    datastore: new S3Store({
+      s3ClientConfig: {
+        bucket: env.S3_BUCKET,
+        region: env.S3_REGION,
+        endpoint: env.S3_ENDPOINT,
+        credentials: {
+          accessKeyId: env.S3_ACCESS_KEY,
+          secretAccessKey: env.S3_SECRET_KEY,
+        },
+        forcePathStyle: env.S3_FORCE_PATH_STYLE,
+      },
+    }),
 
     // ─────────────────────────────────────────────
-    // Called after every tus chunk PATCH completes (final call = full file ready)
+    // Called after the final tus chunk completes (full file ready in S3)
+    // @tus/server v2: (req, upload) — no res argument
     // ─────────────────────────────────────────────
-    onUploadFinish: async (req: Record<string, unknown>, res: Record<string, unknown>, upload: {
-      id: string
-      size: number
-      offset: number
-      metadata: Record<string, string>
-    }) => {
+    onUploadFinish: async (req, upload) => {
       // Auth context injected by the defineEventHandler wrapper below
-      const orgId = (req as Record<string, string>)._reqcoreOrgId
-      const actorId = (req as Record<string, string>)._reqcoreActorId
+      const orgId = (req as unknown as Record<string, string>)._reqcoreOrgId
+      const actorId = (req as unknown as Record<string, string>)._reqcoreActorId
 
       const meta = upload.metadata ?? {}
       const candidateId = meta.candidateId
@@ -76,41 +70,7 @@ function getTusServer() {
 
       if (!orgId || !candidateId) {
         console.error('[tus] Missing orgId or candidateId in upload metadata')
-        return res
-      }
-
-      // ─────────────────────────────────────────────
-      // Read completed temp file
-      // ─────────────────────────────────────────────
-      const filePath = path.join(TUS_UPLOAD_DIR, upload.id)
-      let fileBuffer: Buffer
-
-      try {
-        fileBuffer = await fs.readFile(filePath)
-      }
-      catch (err) {
-        console.error('[tus] Failed to read completed upload file:', err)
-        return res
-      }
-
-      // ─────────────────────────────────────────────
-      // Validate MIME type from magic bytes
-      // ─────────────────────────────────────────────
-      const detectedType = await fileTypeFromBuffer(fileBuffer)
-      let mimeType = detectedType?.mime
-
-      // Detect legacy .doc (OLE2 compound document) manually
-      if (!mimeType) {
-        const OLE2_MAGIC = Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])
-        if (fileBuffer.length >= 8 && Buffer.compare(fileBuffer.subarray(0, 8), OLE2_MAGIC) === 0) {
-          mimeType = 'application/msword'
-        }
-      }
-
-      if (!mimeType || !ALLOWED_MIME_TYPES.includes(mimeType as typeof ALLOWED_MIME_TYPES[number])) {
-        await cleanup(filePath)
-        console.error('[tus] Rejected upload — unsupported MIME type:', mimeType)
-        return res
+        return {}
       }
 
       // ─────────────────────────────────────────────
@@ -118,27 +78,69 @@ function getTusServer() {
       // ─────────────────────────────────────────────
       const typeResult = documentTypeSchema.safeParse(docType)
       if (!typeResult.success) {
-        await cleanup(filePath)
         console.error('[tus] Invalid document type:', docType)
-        return res
+        return { status_code: 422, body: 'Invalid document type' }
       }
 
       // ─────────────────────────────────────────────
-      // Upload to S3 and create DB record
+      // Determine MIME type from client Content-Type header or filename
+      // ─────────────────────────────────────────────
+      const clientContentType = meta['content-type'] ?? meta.contentType ?? ''
+
+      const MIME_WHITELIST: Record<string, string> = {
+        'application/pdf': 'application/pdf',
+        'application/msword': 'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }
+
+      let mimeType: string | undefined = MIME_WHITELIST[clientContentType]
+
+      // Fall back to extension-based detection
+      if (!mimeType) {
+        const ext = rawFilename.split('.').pop()?.toLowerCase()
+        const EXT_MAP: Record<string, string> = {
+          pdf: 'application/pdf',
+          doc: 'application/msword',
+          docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        }
+        mimeType = ext ? EXT_MAP[ext] : undefined
+      }
+
+      if (!mimeType || !ALLOWED_MIME_TYPES.includes(mimeType as typeof ALLOWED_MIME_TYPES[number])) {
+        console.error('[tus] Rejected upload — unsupported MIME type:', mimeType, 'for file:', rawFilename)
+        return { status_code: 415, body: 'Unsupported file type' }
+      }
+
+      // ─────────────────────────────────────────────
+      // Copy tus temp key to canonical org/candidate/docId key
+      // S3Store saves the file at upload.id in the configured bucket
       // ─────────────────────────────────────────────
       const documentId = crypto.randomUUID()
       const extension = MIME_TO_EXTENSION[mimeType] ?? 'bin'
       const storageKey = `${orgId}/${candidateId}/${documentId}.${extension}`
+      const s3 = getS3Client()
 
       try {
-        await uploadToS3(storageKey, fileBuffer, mimeType)
+        await s3.send(new CopyObjectCommand({
+          Bucket: env.S3_BUCKET,
+          CopySource: `${env.S3_BUCKET}/${upload.id}`,
+          Key: storageKey,
+          ContentType: mimeType,
+        }))
       }
       catch (err) {
-        await cleanup(filePath)
-        console.error('[tus] S3 upload failed:', err)
-        return res
+        console.error('[tus] S3 copy to canonical key failed:', err)
+        return { status_code: 500, body: 'Upload storage failed' }
       }
 
+      // Clean up tus temp key and its .info metadata (best-effort)
+      s3.send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: upload.id })).catch(() => {})
+      s3.send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: `${upload.id}.info` })).catch(() => {})
+
+      // ─────────────────────────────────────────────
+      // Create DB record
+      // ─────────────────────────────────────────────
       try {
         const [created] = await db.insert(document).values({
           id: documentId,
@@ -149,7 +151,7 @@ function getTusServer() {
           storageKey,
           originalFilename: sanitizeFilename(rawFilename),
           mimeType,
-          sizeBytes: fileBuffer.length,
+          sizeBytes: upload.size ?? 0,
         }).returning({
           id: document.id,
           type: document.type,
@@ -172,38 +174,18 @@ function getTusServer() {
 
         // Surface the new document ID in a response header so the client
         // can refresh its document list without a full refetch
-        if (res && typeof (res as Record<string, unknown>).setHeader === 'function') {
-          (res as { setHeader: (k: string, v: string) => void }).setHeader('Upload-Document-Id', documentId)
+        return {
+          headers: { 'Upload-Document-Id': documentId },
         }
       }
       catch (err) {
-        await deleteFromS3(storageKey).catch(() => {})
         console.error('[tus] DB insert failed:', err)
+        return {}
       }
-      finally {
-        await cleanup(filePath)
-      }
-
-      return res
     },
   })
 
   return _tusServer
-}
-
-async function cleanup(filePath: string) {
-  await fs.unlink(filePath).catch(() => {})
-  await fs.unlink(`${filePath}.info`).catch(() => {})
-}
-
-// ─────────────────────────────────────────────
-// Ensure upload temp directory exists
-// ─────────────────────────────────────────────
-try {
-  await fs.mkdir(TUS_UPLOAD_DIR, { recursive: true })
-}
-catch {
-  // Already exists
 }
 
 // ─────────────────────────────────────────────
@@ -211,12 +193,12 @@ catch {
 // ─────────────────────────────────────────────
 export default defineEventHandler(async (event) => {
   // Validate auth before tus processes any request.
-  // requirePermission throws 401/403, which is handled by H3 before tus runs.
+  // requirePermission throws 401/403, handled by H3 before tus runs.
   const session = await requirePermission(event, { document: ['create'] })
 
   // Inject org + actor context onto the Node.js request so the onUploadFinish
   // hook can access them without trusting client-supplied metadata.
-  const req = event.node.req as Record<string, string>
+  const req = event.node.req as unknown as Record<string, string>
   req._reqcoreOrgId = session.session.activeOrganizationId
   req._reqcoreActorId = session.user.id
 
