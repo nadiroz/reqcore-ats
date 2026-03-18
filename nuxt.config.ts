@@ -48,6 +48,7 @@ export default defineNuxtConfig({
   // ─────────────────────────────────────────────
   // PostHog — privacy-focused product analytics & feature flags
   // ─────────────────────────────────────────────
+  // @ts-expect-error -- @posthog/nuxt augments NuxtConfig but type not resolved when module is conditionally loaded
   posthogConfig: {
     publicKey: process.env.POSTHOG_PUBLIC_KEY || '',
     host: process.env.POSTHOG_HOST || 'https://eu.i.posthog.com',
@@ -136,7 +137,6 @@ export default defineNuxtConfig({
   },
 
   vite: {
-    // @ts-expect-error - Vite version mismatch between @tailwindcss/vite and Nuxt's bundled Vite
     plugins: [tailwindcss()],
   },
 
