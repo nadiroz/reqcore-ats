@@ -40,6 +40,7 @@ function getTusServer() {
 
   _tusServer = new Server({
     path: '/api/upload',
+    respectForwardedHeaders: true,
     datastore: new S3Store({
       s3ClientConfig: {
         bucket: env.S3_BUCKET,
