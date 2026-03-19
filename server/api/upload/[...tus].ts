@@ -204,9 +204,6 @@ export default defineEventHandler(async (event) => {
 
   const tusServer = getTusServer()
 
-  // Tell H3 we are writing the response ourselves
-  ;(event as unknown as { handled: boolean }).handled = true
-
   return new Promise<void>((resolve, reject) => {
     tusServer.handle(event.node.req, event.node.res)
     event.node.res.on('finish', resolve)
