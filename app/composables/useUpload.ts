@@ -65,6 +65,7 @@ export function useUpload(opts: UseUploadOptions) {
 
     uppy.use(Tus, {
       endpoint: '/api/upload/',
+      withCredentials: true,
       retryDelays: [0, 1000, 3000, 5000],
       chunkSize: 5 * 1024 * 1024, // 5 MB chunks
       metadata: {

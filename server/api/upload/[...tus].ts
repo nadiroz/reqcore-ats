@@ -12,7 +12,9 @@
  *   - applicationId (optional: scopes document to a specific application)
  *
  * Security:
- *   - Auth required for all requests (requirePermission runs before tus)
+ *   - OPTIONS is passed through unauthenticated: browsers never send cookies on CORS
+ *     preflight, and tus OPTIONS only returns server capabilities (no data access).
+ *   - All other methods require a valid session via requirePermission.
  *   - orgId + actorId are injected server-side (never trusted from client metadata)
  *   - MIME type validated from file extension and Content-Type header on completion
  */
@@ -193,15 +195,16 @@ function getTusServer() {
 // Route handler
 // ─────────────────────────────────────────────
 export default defineEventHandler(async (event) => {
-  // Validate auth before tus processes any request.
-  // requirePermission throws 401/403, handled by H3 before tus runs.
-  const session = await requirePermission(event, { document: ['create'] })
-
-  // Inject org + actor context onto the Node.js request so the onUploadFinish
-  // hook can access them without trusting client-supplied metadata.
   const req = event.node.req as unknown as Record<string, string>
-  req._reqcoreOrgId = session.session.activeOrganizationId
-  req._reqcoreActorId = session.user.id
+
+  // OPTIONS is a CORS preflight or tus capabilities request. Browsers never
+  // send credentials on preflight, so auth would always fail. OPTIONS only
+  // returns server capability headers — no data is read or written.
+  if (event.method !== 'OPTIONS') {
+    const session = await requirePermission(event, { document: ['create'] })
+    req._reqcoreOrgId = session.session.activeOrganizationId
+    req._reqcoreActorId = session.user.id
+  }
 
   const tusServer = getTusServer()
 
